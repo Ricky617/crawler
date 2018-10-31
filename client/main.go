@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -65,22 +66,25 @@ func getJob() (string, int) {
 	return string(body), 0
 }
 
-func get(url string) []byte {
+func get(requestUrl string) []byte {
 	client := &http.Client{}
-	fmt.Println(url)
-	req, err := http.NewRequest("GET", url, nil)
+	fmt.Printf(requestUrl)
+	// requestUrl = strings.Replace(requestUrl, "App%20Stroe", "App%2520Stroe", -1)
+	// requestUrl = strings.Replace(requestUrl, "iPhone8,1", "iPhone8%2C1", -1)
+	req, err := http.NewRequest("GET", requestUrl, nil)
 	if err != nil {
 		// handle error
 	}
 
 	req.Header.Set("User-Agent", "Aweme/2.8.0 (iPhone; iOS 11.0; Scale/2.00)")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	// req.Header.Set("Cookie", "name=anny")
 
 	resp, err := client.Do(req)
-
+	if err != nil {
+		fmt.Println(err.Error())
+		return []byte("")
+	}
 	defer resp.Body.Close()
-
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		// handle error
@@ -106,7 +110,7 @@ func post(url string, data string) []byte {
 
 // 获取新的设备信息:有效期60分钟永久
 func get_token() string {
-	url := _API + "/token/douyin"
+	url := _API + "/token/douyin/version/2.7.0"
 	res := get(url)
 	type token struct {
 		Success bool
@@ -123,7 +127,7 @@ func get_token() string {
 }
 
 func get_device() DEVICE {
-	url := _API + "/douyin/device/new"
+	url := _API + "/douyin/device/new/version/2.7.0"
 	res := get(url)
 	type device struct {
 		Success bool
@@ -140,9 +144,11 @@ func get_device() DEVICE {
 
 func get_sign(token string, device DEVICE) (SIGN, string) {
 	url := _API + "/sign"
-	query := `openudid=` + device.Openudid + `&idfa=` + device.Idfa + `&vid=` + device.Vid + `&install_id=` + strconv.Itoa(device.Install_id) + `&iid=` + strconv.Itoa(device.Iid) + `&device_id=` + strconv.Itoa(device.Device_id) + `&new_user=` + strconv.Itoa(device.New_user) + `&device_type=` + device.Device_type + `&os_version=` + device.Os_version + `&os_api=` + device.Os_api + `&screen_width=` + device.Screen_width + `&device_platform=` + device.Device_platform + `&version_code=2.7.0&app_version=2.7.0&channel=App%20Stroe&app_name=aweme&build_number=27014&aid=1128`
+	t := time.Now()
+	timestamp := strconv.FormatInt(t.UTC().UnixNano(), 10)
+	query := "user_id=98105997680&offset=0&count=49&source_type=2&max_time=" + timestamp[:10] + "&ac=WIFI&" + `openudid=` + device.Openudid + `&idfa=` + device.Idfa + `&vid=` + device.Vid + `&install_id=` + strconv.Itoa(device.Install_id) + `&iid=` + strconv.Itoa(device.Iid) + `&device_id=` + strconv.Itoa(device.Device_id) + `&new_user=` + strconv.Itoa(device.New_user) + `&device_type=` + device.Device_type + `&os_version=` + device.Os_version + `&os_api=` + device.Os_api + `&screen_width=` + device.Screen_width + `&device_platform=` + device.Device_platform + `&version_code=2.7.0&app_version=2.7.0&channel=App%20Stroe&app_name=aweme&build_number=27014&aid=1128`
 	jsonData := `{"token":"` + token + `","query":"` + query + `"}`
-	// log.Println(jsonData)
+	log.Println(jsonData)
 	res := post(url, jsonData)
 	type sign struct {
 		Success bool
@@ -163,12 +169,10 @@ func get_sign(token string, device DEVICE) (SIGN, string) {
 func get_signed_params() {
 	device := get_device()
 	token := get_token()
-	sign, query := get_sign(token, device)
-	url := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
-	t := time.Now()
-	timestamp := strconv.FormatInt(t.UTC().UnixNano(), 10)
-	log.Println(sign, url+"user_id=98105997680&offset=0&count=49&source_type=2&ac=WIFI&max_time="+timestamp[:10]+"&"+query)
-	res := get(url + "user_id=98105997680&offset=0&count=49&source_type=2&ac=WIFI&max_time=" + timestamp[:10] + "&" + query)
+	_, query := get_sign(token, device)
+	getUrl := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
+	log.Println(getUrl + query)
+	res := get(getUrl + url.PathEscape(query))
 	log.Println(string(res))
 }
 
