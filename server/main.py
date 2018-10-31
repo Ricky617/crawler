@@ -1,7 +1,7 @@
 import json
 import hashlib
 import base64
-from flask import Flask
+from flask import Flask, request
 app = Flask(__name__)
 
 # md5 = hashlib.md5(b'123').hexdigest()
@@ -19,6 +19,12 @@ jobList = ['1212', '121111']
 def index():
   sendData = {"err": 0, "data": jobList}
   return encryption(json.dumps(sendData).encode())
+
+@app.route('/return', methods=['POST'])
+def returnData():
+  print(request.form)
+  print(request.form.get('data','default value'))
+  return 'welcome'
 
 if __name__ == '__main__':
   app.run(debug=True)

@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/md5"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -14,40 +15,11 @@ import (
 	"time"
 )
 
-// SERVER 服务器地址
+// SERVER 母机地址
 const SERVER = "http://127.0.0.1:5000"
 
-const _API = "https://api.appsign.vip:2688"
-
-// APPINFO 应用信息
-var APPINFO = map[string]string{
-	"version_code": "2.7.0",
-	"app_version":  "2.7.0",
-	"channel":      "App%20Stroe",
-	"app_name":     "aweme",
-	"build_number": "27014",
-	"aid":          "1128",
-}
-
-type DEVICE struct {
-	Openudid        string
-	Idfa            string
-	Vid             string
-	Install_id      int
-	Iid             int
-	Device_id       int
-	New_user        int
-	Device_type     string
-	Os_version      string
-	Os_api          string
-	Screen_width    string
-	Device_platform string
-}
-type SIGN struct {
-	Mas string
-	As  string
-	Ts  string
-}
+// APISERVER 调用Api接口
+const APISERVER = "https://api.appsign.vip:2688"
 
 var errorNumber = 1
 
@@ -109,8 +81,8 @@ func post(url string, data string) []byte {
 }
 
 // 获取新的设备信息:有效期60分钟永久
-func get_token() string {
-	url := _API + "/token/douyin/version/2.7.0"
+func getToken() string {
+	url := APISERVER + "/token/douyin/version/2.7.0"
 	res := get(url)
 	type token struct {
 		Success bool
@@ -126,59 +98,110 @@ func get_token() string {
 	return ""
 }
 
-func get_device() DEVICE {
-	url := _API + "/douyin/device/new/version/2.7.0"
+// getDevice 请求设备信息
+func getDevice() string {
+	url := APISERVER + "/douyin/device/new/version/2.7.0"
 	res := get(url)
+	// DEVICE 设备信息
+	type DEVICE struct {
+		Openudid        string
+		Idfa            string
+		Vid             string
+		Install_id      int
+		Iid             int
+		Device_id       int
+		New_user        int
+		Device_type     string
+		Os_version      string
+		OsAPISERVER     string
+		Screen_width    string
+		Device_platform string
+	}
 	type device struct {
 		Success bool
 		Data    DEVICE
 	}
 	var deviceData device
 	if err := json.Unmarshal(res, &deviceData); err == nil {
-		return deviceData.Data
+		temp := deviceData.Data
+		return `openudid=` + temp.Openudid + `&idfa=` + temp.Idfa + `&vid=` + temp.Vid + `&install_id=` + strconv.Itoa(temp.Install_id) + `&iid=` + strconv.Itoa(temp.Iid) + `&device_id=` + strconv.Itoa(temp.Device_id) + `&new_user=` + strconv.Itoa(temp.New_user) + `&device_type=` + temp.Device_type + `&os_version=` + temp.Os_version + `&osAPISERVER=` + temp.OsAPISERVER + `&screen_width=` + temp.Screen_width + `&device_platform=` + temp.Device_platform
 	} else {
 		log.Println(err.Error())
 	}
-	return deviceData.Data
+	return ""
 }
 
-func get_sign(token string, device DEVICE) (SIGN, string) {
-	url := _API + "/sign"
-	t := time.Now()
-	timestamp := strconv.FormatInt(t.UTC().UnixNano(), 10)
-	query := "user_id=98105997680&offset=0&count=49&source_type=2&max_time=" + timestamp[:10] + "&ac=WIFI&" + `openudid=` + device.Openudid + `&idfa=` + device.Idfa + `&vid=` + device.Vid + `&install_id=` + strconv.Itoa(device.Install_id) + `&iid=` + strconv.Itoa(device.Iid) + `&device_id=` + strconv.Itoa(device.Device_id) + `&new_user=` + strconv.Itoa(device.New_user) + `&device_type=` + device.Device_type + `&os_version=` + device.Os_version + `&os_api=` + device.Os_api + `&screen_width=` + device.Screen_width + `&device_platform=` + device.Device_platform + `&version_code=2.7.0&app_version=2.7.0&channel=App%20Stroe&app_name=aweme&build_number=27014&aid=1128`
+// getSign 获取签名信息
+func getSign(token string, device string) string {
+	url := APISERVER + "/sign"
+	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
+	query := "user_id=98105997680&offset=0&count=49&source_type=2&max_time=" + timestamp[:10] + "&ac=WIFI&" + device + `&version_code=2.7.0&app_version=2.7.0&channel=App%20Stroe&app_name=aweme&build_number=27014&aid=1128`
 	jsonData := `{"token":"` + token + `","query":"` + query + `"}`
-	log.Println(jsonData)
 	res := post(url, jsonData)
+	type SIGN struct {
+		Mas string
+		As  string
+		Ts  string
+	}
 	type sign struct {
 		Success bool
 		Data    SIGN
 	}
 	var signData sign
-	if err := json.Unmarshal(res, &signData); err == nil {
-		query = query + `&mas=` + signData.Data.Mas + `&as=` + signData.Data.As + `&ts=` + signData.Data.Ts
-		return signData.Data, query
-	} else {
+	if err := json.Unmarshal(res, &signData); err != nil {
 		log.Println(err.Error())
+		return query
 	}
-	return signData.Data, query
-	// log.Println(string(b), token, err)
+	query = query + `&mas=` + signData.Data.Mas + `&as=` + signData.Data.As + `&ts=` + signData.Data.Ts
+	return query
 }
 
 // 给请求 params 签名
-func get_signed_params() {
-	device := get_device()
-	token := get_token()
-	_, query := get_sign(token, device)
-	getUrl := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
-	log.Println(getUrl + query)
-	res := get(getUrl + url.PathEscape(query))
+func getUserFavorite() {
+	// 这个一看就知道是抖音官方接口啊
+	getURL := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
+	// 获取个设备信息才好进行下面操作啊
+	device := getDevice()
+	// token当然也是必须的啊
+	token := getToken()
+	// 生成抖音分辨不出来是外人的访问参数
+	query := getSign(token, device)
+	res := get(getURL + url.PathEscape(query))
 	log.Println(string(res))
-}
+	// 解析返回的有什么东东
+	var follow interface{}
+	if err := json.Unmarshal(res, &follow); err == nil {
+		// 我猜他应该是这个格式数据
+		resData := follow.(map[string]interface{})
+		// 其他脚本语言解析JSON不知道比GO语言方便到哪里去了(我技术渣)
+		statusCode := resData["status_code"].(float64)
+		if int(statusCode) == 0 {
+			log.Println("获取关注列表成功!")
+			followings := resData["followings"].([]interface{})
+			userDataList := make([]map[string]string, 0)
+			for _, workItem := range followings {
+				followItem := workItem.(map[string]interface{})
+				userData := map[string]string{
+					"signature": followItem["signature"].(string),
+					"nickname":  followItem["nickname"].(string),
+					"uid":       followItem["uid"].(string),
+				}
+				userDataList = append(userDataList, userData)
 
-// 抖音的签名请求函数
-func curl() {
-	get_signed_params()
+				// go的转JSON太难用
+				// log.Println(followItem)
+			}
+			jsonUserData, _ := json.Marshal(userDataList)
+			// 进行MD5加密
+			h := md5.New()
+			h.Write(jsonUserData)
+			md5 := hex.EncodeToString(h.Sum(nil))
+			// 解析完了就把解析成功的数据发给母机
+			post(SERVER+"/return", `{code:0,data:`+md5+base64.StdEncoding.EncodeToString(jsonUserData)+`}`)
+		}
+	} else {
+		log.Println(err.Error())
+	}
 }
 
 func work(workList string) {
@@ -200,7 +223,7 @@ func work(workList string) {
 				for _, workItem := range workList {
 					fmt.Println(workItem)
 				}
-				curl()
+				getUserFavorite()
 			}
 		}
 	} else {
