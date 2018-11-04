@@ -42,7 +42,7 @@ class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
       # 获取数据库指针
       c = conn.cursor()
       print('receive ' + str(len(userList)) +' user info!')
-      logging.info(userList)
+      # logging.info(userList)
       # 拼接SQL语句一次性插入
       sqlStr = 'INSERT INTO SIMPLE (DOUYIN_ID, NAME, SIGNA, BIRTHDAY, GET_TIME) VALUES '
       # 获取当前时间戳
@@ -67,7 +67,7 @@ class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
         else:
           sqlStr += "(" + userId +", '" + val['nickname'] +"', '" + val['signature'] +"', '" + val['birthday'] +"', " + str(int(Time)) +" ),"
       # 插入数据库
-      logging.info(sqlStr)
+      # logging.info(sqlStr)
       c.execute(sqlStr)
       conn.commit()
       conn.close()

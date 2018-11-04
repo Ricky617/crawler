@@ -29,7 +29,7 @@ const server = "http://127.0.0.1:8000"
 const apiServer = "https://api.appsign.vip:2688"
 
 // 还没有扫描用户列表
-var unknownUserList = []string{"99736922134"}
+var unknownUserList = []string{"63074794240"}
 
 // 待发送用户列表
 var tempUserList = []map[string]string{}
@@ -85,12 +85,13 @@ func get(requestURL string) []byte {
 }
 
 // Post请求数据
-func post(url string, data string) []byte {
+func post(url string, data string) (error, []byte) {
 	resp, err := http.Post(url,
 		"application/x-www-form-urlencoded",
 		strings.NewReader(data))
 	if err != nil {
 		fmt.Println(err)
+		return err, nil
 	}
 
 	defer resp.Body.Close()
@@ -98,7 +99,7 @@ func post(url string, data string) []byte {
 	if err != nil {
 		// handle error
 	}
-	return body
+	return nil, body
 }
 
 // 获取新的设备信息:有效期60分钟永久
@@ -150,12 +151,15 @@ func getDevice() string {
 }
 
 // getSign 获取签名信息
-func getSign(token string, device string, userID string) string {
+func getSign(token string, device string, userID string) (error, string) {
 	url := apiServer + "/sign"
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()+3600000000000, 10)
 	query := "user_id=" + userID + "&offset=0&count=49&source_type=2&max_time=" + timestamp[:10] + "&ac=WIFI&" + device + `&version_code=2.7.0&app_version=2.7.0&channel=App%20Stroe&app_name=aweme&build_number=27014&aid=1128`
 	jsonData := `{"token":"` + token + `","query":"` + query + `"}`
-	res := post(url, jsonData)
+	err, res := post(url, jsonData)
+	if err != nil {
+		return err, ""
+	}
 	// log.Println(string(res))
 	type SIGN struct {
 		Mas string
@@ -169,27 +173,32 @@ func getSign(token string, device string, userID string) string {
 	var signData sign
 	if err := json.Unmarshal(res, &signData); err != nil {
 		log.Println(err.Error())
-		return query
+		return nil, query
 	}
 	query = query + `&mas=` + signData.Data.Mas + `&as=` + signData.Data.As + `&ts=` + signData.Data.Ts
-	return query
+	return nil, query
 }
 
 // 生成请求参数
-func getQuery(userID string) string {
+func getQuery(userID string) (error, string) {
 	device := cacheDevice
 	token := cacheToken
 	// 生成访问参数
-	query := getSign(token, device, userID)
-	return url.PathEscape(query)
+	err, query := getSign(token, device, userID)
+	if err != nil {
+		return err, ""
+	}
+	return nil, url.PathEscape(query)
 }
 
 func getUserFavoriteList(userID string) {
 	// 这个一看就知道是抖音官方接口啊
 	getURL := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
-	query := getQuery(userID)
+	err, query := getQuery(userID)
+	if err != nil {
+		return
+	}
 	res := get(getURL + query)
-
 	// log.Println(string(res))
 	// 解析返回的有什么东东
 	var follow interface{}
@@ -373,20 +382,22 @@ func main() {
 		}
 
 		wg.Wait()
-		// 向服务端发回数据
-		favoriteList, _ := json.Marshal(tempUserList)
-		sendData := string(favoriteList)
-		if encrypt {
-			// fmt.Print(string(sendData))
-			// 进行MD5加密
-			h := md5.New()
-			h.Write(favoriteList)
-			md5Data := hex.EncodeToString(h.Sum(nil))
-			sendData = md5Data + base64.StdEncoding.EncodeToString(favoriteList)
+		// 有数据才发送向服务端发回数据
+		if len(tempUserList) > 0 {
+			favoriteList, _ := json.Marshal(tempUserList)
+			sendData := string(favoriteList)
+			if encrypt {
+				// fmt.Print(string(sendData))
+				// 进行MD5加密
+				h := md5.New()
+				h.Write(favoriteList)
+				md5Data := hex.EncodeToString(h.Sum(nil))
+				sendData = md5Data + base64.StdEncoding.EncodeToString(favoriteList)
+			}
+			log.Println("send user number:" + strconv.Itoa(len(tempUserList)))
+			// 解析完了就把解析成功的数据发给母机
+			post(server+"/return", `{"err":0,"data":`+sendData+`}`)
 		}
-		log.Println("send user number:" + strconv.Itoa(len(tempUserList)))
-		// 解析完了就把解析成功的数据发给母机
-		post(server+"/return", `{"err":0,"data":`+sendData+`}`)
 	}
 	println("main exit.")
 }
