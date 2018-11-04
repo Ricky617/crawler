@@ -29,7 +29,7 @@ const server = "http://127.0.0.1:8000"
 const apiServer = "https://api.appsign.vip:2688"
 
 // 还没有扫描用户列表
-var unknownUserList = []string{"91688640185"}
+var unknownUserList = []string{"59099471301"}
 
 // 缓存时间
 var cacheTime int64 = 1041218962781626500
@@ -153,7 +153,7 @@ func getSign(token string, device string, userID string) string {
 	query := "user_id=" + userID + "&offset=0&count=49&source_type=2&max_time=" + timestamp[:10] + "&ac=WIFI&" + device + `&version_code=2.7.0&app_version=2.7.0&channel=App%20Stroe&app_name=aweme&build_number=27014&aid=1128`
 	jsonData := `{"token":"` + token + `","query":"` + query + `"}`
 	res := post(url, jsonData)
-	log.Println(res)
+	// log.Println(string(res))
 	type SIGN struct {
 		Mas string
 		As  string
@@ -234,7 +234,7 @@ func getUserFavoriteList(userID string) []map[string]string {
 			// 输出当前用户池
 			// log.Println(time)
 			// log.Println("------------------------- users pool -------------------------")
-			log.Println(unknownUserList)
+			// log.Println(unknownUserList)
 			// log.Println("--------------------------------------------------------------")
 		}
 	} else {
@@ -338,7 +338,7 @@ func checkUserSaved(douyinID string) bool {
 
 func main() {
 	// 连接数据库
-	conn, err := sql.Open("mssql", "server=localhost;user id=PUGE;password=mmit7750;")
+	conn, err := sql.Open("mssql", "server=192.168.1.100;user id=PUGE;password=mmit7750;")
 	if err != nil {
 		log.Fatal("Open connection failed:", err.Error())
 	}
