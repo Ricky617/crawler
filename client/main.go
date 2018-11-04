@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/denisenkom/go-mssqldb"
@@ -28,7 +29,7 @@ const server = "http://127.0.0.1:8000"
 const apiServer = "https://api.appsign.vip:2688"
 
 // 还没有扫描用户列表
-var unknownUserList = []string{"98448654828"}
+var unknownUserList = []string{"91688640185"}
 
 // 缓存时间
 var cacheTime int64 = 1041218962781626500
@@ -38,6 +39,8 @@ var cacheDevice = ""
 // 错误次数
 var errorNumber = 1
 var dbConnect *sql.DB
+
+var wg sync.WaitGroup
 
 // 当然是请求任务啦
 func getJob() (string, int) {
@@ -150,6 +153,7 @@ func getSign(token string, device string, userID string) string {
 	query := "user_id=" + userID + "&offset=0&count=49&source_type=2&max_time=" + timestamp[:10] + "&ac=WIFI&" + device + `&version_code=2.7.0&app_version=2.7.0&channel=App%20Stroe&app_name=aweme&build_number=27014&aid=1128`
 	jsonData := `{"token":"` + token + `","query":"` + query + `"}`
 	res := post(url, jsonData)
+	log.Println(res)
 	type SIGN struct {
 		Mas string
 		As  string
@@ -172,20 +176,6 @@ func getSign(token string, device string, userID string) string {
 func getQuery(userID string) string {
 	device := cacheDevice
 	token := cacheToken
-	timestamp := time.Now().UTC().UnixNano()
-	// 如果超过了1000秒重新获取设备信息和Token
-	if timestamp > cacheTime+1000000000000 {
-		// 获取个设备信息才好进行下面操作啊
-		device = getDevice()
-		// token当然也是必须的啊
-		token = getToken()
-		// 刷新缓存
-		cacheTime = timestamp
-		cacheDevice = device
-		cacheToken = token
-	} else {
-		log.Println("use cache device and token")
-	}
 	// 生成访问参数
 	query := getSign(token, device, userID)
 	return url.PathEscape(query)
@@ -197,20 +187,31 @@ func getUserFavoriteList(userID string) []map[string]string {
 	getURL := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
 	query := getQuery(userID)
 	res := get(getURL + query)
+
 	// log.Println(string(res))
 	// 解析返回的有什么东东
 	var follow interface{}
 	if err := json.Unmarshal(res, &follow); err == nil {
 		// 我猜他应该是这个格式数据
 		resData := follow.(map[string]interface{})
+		// 待优化
+		fmt.Println(resData["max_time"])
+
+		if resData["max_time"] == nil {
+			log.Println(string(res))
+			log.Println("休息一会, 5秒后重试")
+			cacheTime = 0
+			time.Sleep(time.Second * 5)
+			return userDataList
+		}
+		// maxTime := resData["max_time"].(float64)
 		statusCode := resData["status_code"].(float64)
 		if int(statusCode) == 0 {
-			// 获取完当前用户的关注信息后将当前用户移出用户池
-			unknownUserList = unknownUserList[1:]
 			// 清洗数据
 			followings := resData["followings"].([]interface{})
 			// 计算数据库插入时间
-			t1 := time.Now()
+			// t1 := time.Now()
+			log.Println("get user info number:" + strconv.Itoa(len(followings)))
 			for _, workItem := range followings {
 				followItem := workItem.(map[string]interface{})
 				// 如果在数据库中已经存在的则不进行保存
@@ -229,12 +230,12 @@ func getUserFavoriteList(userID string) []map[string]string {
 					}
 				}
 			}
-			time := time.Now().Sub(t1)
+			// time := time.Now().Sub(t1)
 			// 输出当前用户池
-			log.Println(time)
-			log.Println("------------------------- users pool -------------------------")
+			// log.Println(time)
+			// log.Println("------------------------- users pool -------------------------")
 			log.Println(unknownUserList)
-			log.Println("--------------------------------------------------------------")
+			// log.Println("--------------------------------------------------------------")
 		}
 	} else {
 		log.Println(err.Error())
@@ -293,6 +294,7 @@ func getDouYinFavorite(userID string) {
 	// print(`{"err":0,"data":` + sendData + `}`)
 	// 解析完了就把解析成功的数据发给母机
 	post(server+"/return", `{"err":0,"data":`+sendData+`}`)
+	defer wg.Done()
 }
 
 // 获取工作的函数
@@ -348,6 +350,41 @@ func main() {
 	}
 	// 干不完不准休息
 	for len(unknownUserList) > 0 {
-		getDouYinFavorite(unknownUserList[0])
+		device := cacheDevice
+		token := cacheToken
+		timestamp := time.Now().UTC().UnixNano()
+		// 如果超过了1000秒重新获取设备信息和Token
+		if timestamp > cacheTime+100000000000 {
+			log.Println("get new device and token")
+			// 获取个设备信息才好进行下面操作啊
+			device = getDevice()
+			// token当然也是必须的啊
+			token = getToken()
+			// 刷新缓存
+			cacheTime = timestamp
+			cacheDevice = device
+			cacheToken = token
+		}
+		idList := unknownUserList
+		if len(unknownUserList) > 10 {
+			unknownUserList = unknownUserList[10:]
+			for key := 0; key < 10; key++ {
+				wg.Add(1)
+				// 先休息 明天弄
+				time.Sleep(time.Millisecond * 500)
+				go getDouYinFavorite(idList[key])
+			}
+		} else {
+			unknownUserList = unknownUserList[0:0]
+			for key := range idList {
+				wg.Add(1)
+				// 先休息 明天弄
+				time.Sleep(time.Millisecond * 500)
+				go getDouYinFavorite(idList[key])
+			}
+		}
+
+		wg.Wait()
 	}
+	println("main exit.")
 }

@@ -37,6 +37,7 @@ class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
       # 获取当前时间戳
       Time = time.time()
       for ind, val in enumerate(userList):
+        # print(val)
         # 去除非法字符
         val['nickname'] = val['nickname'].replace('\n', '')
         val['nickname'] = val['nickname'].replace("'", "''")
