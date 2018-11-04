@@ -1,13 +1,24 @@
 #!/usr/bin/env python
 #--coding:utf-8--
 import urllib
+import os
 import json
 import time
 import pyodbc
 import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(filename)s:%(lineno)d %(threadName)s:%(funcName)s %(levelname)s] %(message)s')
+if not os.path.exists("./log/"):
+  os.mkdir("./log/")
+# Log输出配置
+logFileName = str(int(time.time())) + '.log'
+file = open('./log/' + logFileName , 'w' ,encoding='utf-8')
+file.close()
+logging.basicConfig(
+  level=logging.INFO,
+  format='%(asctime)s: %(message)s',
+  handlers=[logging.FileHandler('./log/'+ logFileName, 'w', 'utf-8')]
+)
 
 jobList = ['1212', '121111']
 class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
@@ -30,25 +41,33 @@ class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
       conn = pyodbc.connect(r'DRIVER={SQL Server Native Client 11.0};SERVER=localhost;DATABASE=Douyin;UID=PUGE;PWD=mmit7750')
       # 获取数据库指针
       c = conn.cursor()
-      logging.info('receive ' + str(len(userList)) +' user info!')
-      logging.debug(userList)
+      print('receive ' + str(len(userList)) +' user info!')
+      logging.info(userList)
       # 拼接SQL语句一次性插入
       sqlStr = 'INSERT INTO SIMPLE (DOUYIN_ID, NAME, SIGNA, BIRTHDAY, GET_TIME) VALUES '
       # 获取当前时间戳
       Time = time.time()
-      for ind, val in enumerate(userList):
+      saveUserList = {}
+      # 数据清洗 清洗重复ID
+      for value in userList:
+        saveUserList[value["uid"]] = value
+      for ind, uid in enumerate(saveUserList):
+        val = saveUserList[uid]
+        # 取出用户ID
+        userId = val['uid']
         # print(val)
         # 去除非法字符
         val['nickname'] = val['nickname'].replace('\n', '')
         val['nickname'] = val['nickname'].replace("'", "''")
         val['signature'] = val['signature'].replace('\n', '')
         val['signature'] = val['signature'].replace("'", "''")
-        if (len(userList) - 1 == ind):
-          sqlStr += "(" + val['uid'] +", '" + val['nickname'] +"', '" + val['signature'] +"', '" + val['birthday'] +"', " + str(int(Time)) +" );"
+        # 如果最是最后一条则拼接以分号结尾的SQL语句
+        if (len(saveUserList) - 1 == ind):
+          sqlStr += "(" + userId +", '" + val['nickname'] +"', '" + val['signature'] +"', '" + val['birthday'] +"', " + str(int(Time)) +" );"
         else:
-          sqlStr += "(" + val['uid'] +", '" + val['nickname'] +"', '" + val['signature'] +"', '" + val['birthday'] +"', " + str(int(Time)) +" ),"
-      # print(sqlStr)
+          sqlStr += "(" + userId +", '" + val['nickname'] +"', '" + val['signature'] +"', '" + val['birthday'] +"', " + str(int(Time)) +" ),"
       # 插入数据库
+      logging.info(sqlStr)
       c.execute(sqlStr)
       conn.commit()
       conn.close()

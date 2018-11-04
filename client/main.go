@@ -29,7 +29,10 @@ const server = "http://127.0.0.1:8000"
 const apiServer = "https://api.appsign.vip:2688"
 
 // 还没有扫描用户列表
-var unknownUserList = []string{"59099471301"}
+var unknownUserList = []string{"99736922134"}
+
+// 待发送用户列表
+var tempUserList = []map[string]string{}
 
 // 缓存时间
 var cacheTime int64 = 1041218962781626500
@@ -181,8 +184,7 @@ func getQuery(userID string) string {
 	return url.PathEscape(query)
 }
 
-func getUserFavoriteList(userID string) []map[string]string {
-	userDataList := make([]map[string]string, 0)
+func getUserFavoriteList(userID string) {
 	// 这个一看就知道是抖音官方接口啊
 	getURL := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
 	query := getQuery(userID)
@@ -195,14 +197,12 @@ func getUserFavoriteList(userID string) []map[string]string {
 		// 我猜他应该是这个格式数据
 		resData := follow.(map[string]interface{})
 		// 待优化
-		fmt.Println(resData["max_time"])
-
 		if resData["max_time"] == nil {
 			log.Println(string(res))
-			log.Println("休息一会, 5秒后重试")
+			log.Println("休息一会, 10秒后重试")
 			cacheTime = 0
-			time.Sleep(time.Second * 5)
-			return userDataList
+			time.Sleep(time.Second * 10)
+			return
 		}
 		// maxTime := resData["max_time"].(float64)
 		statusCode := resData["status_code"].(float64)
@@ -211,7 +211,7 @@ func getUserFavoriteList(userID string) []map[string]string {
 			followings := resData["followings"].([]interface{})
 			// 计算数据库插入时间
 			// t1 := time.Now()
-			log.Println("get user info number:" + strconv.Itoa(len(followings)))
+			// log.Println("get user info number:" + strconv.Itoa(len(followings)))
 			for _, workItem := range followings {
 				followItem := workItem.(map[string]interface{})
 				// 如果在数据库中已经存在的则不进行保存
@@ -222,7 +222,7 @@ func getUserFavoriteList(userID string) []map[string]string {
 						"uid":       followItem["uid"].(string),
 						"birthday":  followItem["birthday"].(string),
 					}
-					userDataList = append(userDataList, userData)
+					tempUserList = append(tempUserList, userData)
 					// 限制用户池大小防止溢出 上限200
 					if len(unknownUserList) < 200 {
 						// 添加到还没有扫描列表
@@ -240,7 +240,6 @@ func getUserFavoriteList(userID string) []map[string]string {
 	} else {
 		log.Println(err.Error())
 	}
-	return userDataList
 }
 
 func work(workList string, userID string) {
@@ -279,21 +278,7 @@ func work(workList string, userID string) {
 // 获取抖音指定用户关注列表
 func getDouYinFavorite(userID string) {
 	// 获取到关注用户列表
-	userFavoriteList := getUserFavoriteList(userID)
-	favoriteList, _ := json.Marshal(userFavoriteList)
-	sendData := string(favoriteList)
-	if encrypt {
-		// fmt.Print(string(sendData))
-		// 进行MD5加密
-		h := md5.New()
-		h.Write(favoriteList)
-		md5Data := hex.EncodeToString(h.Sum(nil))
-		sendData = md5Data + base64.StdEncoding.EncodeToString(favoriteList)
-	}
-	log.Println("save user number:" + strconv.Itoa(len(userFavoriteList)))
-	// print(`{"err":0,"data":` + sendData + `}`)
-	// 解析完了就把解析成功的数据发给母机
-	post(server+"/return", `{"err":0,"data":`+sendData+`}`)
+	getUserFavoriteList(userID)
 	defer wg.Done()
 }
 
@@ -338,7 +323,7 @@ func checkUserSaved(douyinID string) bool {
 
 func main() {
 	// 连接数据库
-	conn, err := sql.Open("mssql", "server=192.168.1.100;user id=PUGE;password=mmit7750;")
+	conn, err := sql.Open("mssql", "server=localhost;user id=PUGE;password=mmit7750;")
 	if err != nil {
 		log.Fatal("Open connection failed:", err.Error())
 	}
@@ -350,8 +335,11 @@ func main() {
 	}
 	// 干不完不准休息
 	for len(unknownUserList) > 0 {
+		// 从缓存中取出 device 和 token信息
 		device := cacheDevice
 		token := cacheToken
+		// 清除待发送用户列表数据
+		tempUserList = tempUserList[0:0]
 		timestamp := time.Now().UTC().UnixNano()
 		// 如果超过了1000秒重新获取设备信息和Token
 		if timestamp > cacheTime+100000000000 {
@@ -385,6 +373,20 @@ func main() {
 		}
 
 		wg.Wait()
+		// 向服务端发回数据
+		favoriteList, _ := json.Marshal(tempUserList)
+		sendData := string(favoriteList)
+		if encrypt {
+			// fmt.Print(string(sendData))
+			// 进行MD5加密
+			h := md5.New()
+			h.Write(favoriteList)
+			md5Data := hex.EncodeToString(h.Sum(nil))
+			sendData = md5Data + base64.StdEncoding.EncodeToString(favoriteList)
+		}
+		log.Println("send user number:" + strconv.Itoa(len(tempUserList)))
+		// 解析完了就把解析成功的数据发给母机
+		post(server+"/return", `{"err":0,"data":`+sendData+`}`)
 	}
 	println("main exit.")
 }
