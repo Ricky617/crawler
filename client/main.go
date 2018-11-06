@@ -28,8 +28,11 @@ const server = "http://127.0.0.1:8000"
 // 调用Api接口
 const apiServer = "https://api.appsign.vip:2688"
 
+// 总共获取到的用户数量
+var follosUserNumber = 0
+
 // 还没有扫描用户列表
-var unknownUserList = []string{"63074794240"}
+var unknownUserList = []string{"97888878377"}
 
 // 待发送用户列表
 var tempUserList = []map[string]string{}
@@ -44,6 +47,9 @@ var errorNumber = 1
 var dbConnect *sql.DB
 
 var wg sync.WaitGroup
+
+// 代理IP
+var proxyURL = "http://183.166.132.137:38747"
 
 // 当然是请求任务啦
 func getJob() (string, int) {
@@ -60,12 +66,24 @@ func getJob() (string, int) {
 }
 
 // Get请求数据
-func get(requestURL string) []byte {
+func get(requestURL string, useProxy bool) ([]byte, error) {
 	client := &http.Client{}
+	if useProxy {
+		// fmt.Println(proxyURL)
+		proxy, _ := url.Parse(proxyURL)
+		tr := &http.Transport{
+			Proxy: http.ProxyURL(proxy),
+		}
+		client = &http.Client{
+			Transport: tr,
+			Timeout:   time.Second * 15, //超时时间
+		}
+	}
+
 	// fmt.Printf(requestURL)
 	req, err := http.NewRequest("GET", requestURL, nil)
 	if err != nil {
-		// handle error
+		return []byte(""), err
 	}
 
 	req.Header.Set("User-Agent", "Aweme/2.8.0 (iPhone; iOS 11.0; Scale/2.00)")
@@ -73,25 +91,24 @@ func get(requestURL string) []byte {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println(err.Error())
-		return []byte("")
+		return []byte(""), err
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		// handle error
 	}
-	return body
+	return body, nil
 }
 
 // Post请求数据
-func post(url string, data string) (error, []byte) {
+func post(url string, data string) ([]byte, error) {
 	resp, err := http.Post(url,
 		"application/x-www-form-urlencoded",
 		strings.NewReader(data))
 	if err != nil {
 		fmt.Println(err)
-		return err, nil
+		return nil, err
 	}
 
 	defer resp.Body.Close()
@@ -99,13 +116,20 @@ func post(url string, data string) (error, []byte) {
 	if err != nil {
 		// handle error
 	}
-	return nil, body
+	return body, nil
 }
 
 // 获取新的设备信息:有效期60分钟永久
 func getToken() string {
 	url := apiServer + "/token/douyin/version/2.7.0"
-	res := get(url)
+	res, err := get(url, false)
+	if err != nil {
+		log.Println(err)
+		fmt.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
+		log.Println("请求发生错误,休息一会, 10秒后重试")
+		cacheTime = 0
+		time.Sleep(time.Second * 10)
+	}
 	type token struct {
 		Success bool
 		Token   string
@@ -121,7 +145,14 @@ func getToken() string {
 // getDevice 请求设备信息
 func getDevice() string {
 	url := apiServer + "/douyin/device/new/version/2.7.0"
-	res := get(url)
+	res, err := get(url, false)
+	if err != nil {
+		log.Println(err)
+		fmt.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
+		log.Println("请求发生错误,休息一会, 10秒后重试")
+		cacheTime = 0
+		time.Sleep(time.Second * 10)
+	}
 	// DEVICE 设备信息
 	type DEVICE struct {
 		Openudid        string
@@ -151,14 +182,14 @@ func getDevice() string {
 }
 
 // getSign 获取签名信息
-func getSign(token string, device string, userID string) (error, string) {
+func getSign(token string, device string, userID string) (string, error) {
 	url := apiServer + "/sign"
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()+3600000000000, 10)
 	query := "user_id=" + userID + "&offset=0&count=49&source_type=2&max_time=" + timestamp[:10] + "&ac=WIFI&" + device + `&version_code=2.7.0&app_version=2.7.0&channel=App%20Stroe&app_name=aweme&build_number=27014&aid=1128`
 	jsonData := `{"token":"` + token + `","query":"` + query + `"}`
-	err, res := post(url, jsonData)
+	res, err := post(url, jsonData)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 	// log.Println(string(res))
 	type SIGN struct {
@@ -173,32 +204,41 @@ func getSign(token string, device string, userID string) (error, string) {
 	var signData sign
 	if err := json.Unmarshal(res, &signData); err != nil {
 		log.Println(err.Error())
-		return nil, query
+		return query, nil
 	}
 	query = query + `&mas=` + signData.Data.Mas + `&as=` + signData.Data.As + `&ts=` + signData.Data.Ts
-	return nil, query
+	return query, nil
 }
 
 // 生成请求参数
-func getQuery(userID string) (error, string) {
+func getQuery(userID string) (string, error) {
 	device := cacheDevice
 	token := cacheToken
 	// 生成访问参数
-	err, query := getSign(token, device, userID)
+	query, err := getSign(token, device, userID)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
-	return nil, url.PathEscape(query)
+	return url.PathEscape(query), nil
 }
 
 func getUserFavoriteList(userID string) {
 	// 这个一看就知道是抖音官方接口啊
 	getURL := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
-	err, query := getQuery(userID)
+	query, err := getQuery(userID)
 	if err != nil {
 		return
 	}
-	res := get(getURL + query)
+	res, err := get(getURL+query, true)
+	if err != nil {
+		log.Println(err)
+		fmt.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
+		log.Println("请求发生错误,休息一会, 10秒后重试")
+		cacheTime = 0
+		time.Sleep(time.Second * 10)
+		defer wg.Done()
+		return
+	}
 	// log.Println(string(res))
 	// 解析返回的有什么东东
 	var follow interface{}
@@ -208,9 +248,10 @@ func getUserFavoriteList(userID string) {
 		// 待优化
 		if resData["max_time"] == nil {
 			log.Println(string(res))
-			log.Println("休息一会, 10秒后重试")
+			log.Println("休息一会, 20秒后重试")
 			cacheTime = 0
-			time.Sleep(time.Second * 10)
+			time.Sleep(time.Second * 20)
+			defer wg.Done()
 			return
 		}
 		// maxTime := resData["max_time"].(float64)
@@ -221,6 +262,8 @@ func getUserFavoriteList(userID string) {
 			// 计算数据库插入时间
 			// t1 := time.Now()
 			// log.Println("get user info number:" + strconv.Itoa(len(followings)))
+			// 统计总共获取到的用户数量
+			follosUserNumber += len(followings)
 			for _, workItem := range followings {
 				followItem := workItem.(map[string]interface{})
 				// 如果在数据库中已经存在的则不进行保存
@@ -232,9 +275,11 @@ func getUserFavoriteList(userID string) {
 						"birthday":  followItem["birthday"].(string),
 					}
 					tempUserList = append(tempUserList, userData)
+					// fmt.Println(tempUserList)
 					// 限制用户池大小防止溢出 上限200
 					if len(unknownUserList) < 200 {
 						// 添加到还没有扫描列表
+						// fmt.Println(followItem["uid"].(string))
 						unknownUserList = append(unknownUserList, followItem["uid"].(string))
 					}
 				}
@@ -249,6 +294,7 @@ func getUserFavoriteList(userID string) {
 	} else {
 		log.Println(err.Error())
 	}
+	defer wg.Done()
 }
 
 func work(workList string, userID string) {
@@ -284,13 +330,6 @@ func work(workList string, userID string) {
 	}
 }
 
-// 获取抖音指定用户关注列表
-func getDouYinFavorite(userID string) {
-	// 获取到关注用户列表
-	getUserFavoriteList(userID)
-	defer wg.Done()
-}
-
 // 获取工作的函数
 func getWork(userID string) {
 	// 没有找到工作要你有毛用啊 继续找
@@ -318,6 +357,7 @@ func getWork(userID string) {
 	}
 }
 
+// 从数据库中查找用户是否存在
 func checkUserSaved(douyinID string) bool {
 	var count int
 	err := dbConnect.QueryRow("select isnull((select top(1) 1 from DouYin.dbo.SIMPLE where DOUYIN_ID = '" + douyinID + "'), 0)").Scan(&count)
@@ -328,6 +368,93 @@ func checkUserSaved(douyinID string) bool {
 		return true
 	}
 	return false
+}
+
+// 获取代理IP
+func getProxy() string {
+	return "你的代理"
+}
+
+// 向服务器回传数据
+func deliver(sendData string) {
+	// 解析完了就把解析成功的数据发给母机
+	post(server+"/return", sendData)
+}
+
+// 格式化关注列表 将获取到的关注列表包装成返回数据格式
+func formatUserList() {
+	needSendNumber := len(tempUserList)
+	fmt.Println("send user number: " + strconv.Itoa(needSendNumber))
+	if follosUserNumber > 0 {
+		fmt.Println("work efficiency: " + strconv.Itoa((needSendNumber*100)/follosUserNumber) + "%")
+	}
+	// 有数据才发送向服务端发回数据
+	if needSendNumber > 0 {
+		favoriteList, _ := json.Marshal(tempUserList)
+		sendData := string(favoriteList)
+		if encrypt {
+			// fmt.Print(string(sendData))
+			// 进行MD5加密
+			h := md5.New()
+			h.Write(favoriteList)
+			md5Data := hex.EncodeToString(h.Sum(nil))
+			sendData = md5Data + base64.StdEncoding.EncodeToString(favoriteList)
+		}
+		// 解析完了就把解析成功的数据发给母机
+		deliver(`{"err":0,"data":` + sendData + `}`)
+	}
+}
+
+// 并发执行任务
+func concurrency() {
+	// 清空获取用户数量
+	follosUserNumber = 0
+	taskList := unknownUserList
+	if len(taskList) > 10 {
+		unknownUserList = unknownUserList[10:]
+		for key := 0; key < 10; key++ {
+			wg.Add(1)
+			time.Sleep(time.Millisecond * 500)
+			go getUserFavoriteList(taskList[key])
+		}
+	} else {
+		unknownUserList = unknownUserList[0:0]
+		for key := range taskList {
+			wg.Add(1)
+			time.Sleep(time.Millisecond * 500)
+			go getUserFavoriteList(taskList[key])
+		}
+	}
+	// 等待线程结束进行下一轮
+	wg.Wait()
+	// 任务完成后将用户关注信息传回服务端
+	formatUserList()
+}
+
+// 检查是否需要更新Token
+func checkTimeout(useProxy bool) {
+	// 从缓存中取出 device 和 token信息
+	device := cacheDevice
+	token := cacheToken
+	// 清除待发送用户列表数据
+	tempUserList = tempUserList[0:0]
+	timestamp := time.Now().UTC().UnixNano()
+	// 超过40秒更换新的代理IP
+	if (timestamp > cacheTime+40000000000) && useProxy {
+		proxyURL = "http://" + getProxy()
+	}
+	// 如果超过了100秒重新获取设备信息和Token
+	if timestamp > cacheTime+100000000000 {
+		log.Println("get new device and token")
+		// 获取个设备信息才好进行下面操作啊
+		device = getDevice()
+		// token当然也是必须的啊
+		token = getToken()
+		// 刷新缓存
+		cacheTime = timestamp
+		cacheDevice = device
+		cacheToken = token
+	}
 }
 
 func main() {
@@ -344,60 +471,10 @@ func main() {
 	}
 	// 干不完不准休息
 	for len(unknownUserList) > 0 {
-		// 从缓存中取出 device 和 token信息
-		device := cacheDevice
-		token := cacheToken
-		// 清除待发送用户列表数据
-		tempUserList = tempUserList[0:0]
-		timestamp := time.Now().UTC().UnixNano()
-		// 如果超过了1000秒重新获取设备信息和Token
-		if timestamp > cacheTime+100000000000 {
-			log.Println("get new device and token")
-			// 获取个设备信息才好进行下面操作啊
-			device = getDevice()
-			// token当然也是必须的啊
-			token = getToken()
-			// 刷新缓存
-			cacheTime = timestamp
-			cacheDevice = device
-			cacheToken = token
-		}
-		idList := unknownUserList
-		if len(unknownUserList) > 10 {
-			unknownUserList = unknownUserList[10:]
-			for key := 0; key < 10; key++ {
-				wg.Add(1)
-				// 先休息 明天弄
-				time.Sleep(time.Millisecond * 500)
-				go getDouYinFavorite(idList[key])
-			}
-		} else {
-			unknownUserList = unknownUserList[0:0]
-			for key := range idList {
-				wg.Add(1)
-				// 先休息 明天弄
-				time.Sleep(time.Millisecond * 500)
-				go getDouYinFavorite(idList[key])
-			}
-		}
-
-		wg.Wait()
-		// 有数据才发送向服务端发回数据
-		if len(tempUserList) > 0 {
-			favoriteList, _ := json.Marshal(tempUserList)
-			sendData := string(favoriteList)
-			if encrypt {
-				// fmt.Print(string(sendData))
-				// 进行MD5加密
-				h := md5.New()
-				h.Write(favoriteList)
-				md5Data := hex.EncodeToString(h.Sum(nil))
-				sendData = md5Data + base64.StdEncoding.EncodeToString(favoriteList)
-			}
-			log.Println("send user number:" + strconv.Itoa(len(tempUserList)))
-			// 解析完了就把解析成功的数据发给母机
-			post(server+"/return", `{"err":0,"data":`+sendData+`}`)
-		}
+		// 定期获取Token和代理IP
+		checkTimeout(true)
+		// 并发执行任务
+		concurrency()
 	}
-	println("main exit.")
+	println("all over!")
 }
