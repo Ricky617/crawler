@@ -32,7 +32,7 @@ const apiServer = "https://api.appsign.vip:2688"
 var follosUserNumber = 0
 
 // 还没有扫描用户列表
-var unknownUserList = []string{"97888878377"}
+var unknownUserList = []string{"58492842678"}
 
 // 待发送用户列表
 var tempUserList = []map[string]string{}
@@ -49,6 +49,7 @@ var dbConnect *sql.DB
 var wg sync.WaitGroup
 
 // 代理IP
+var useProxy = true
 var proxyURL = "http://183.166.132.137:38747"
 
 // 当然是请求任务啦
@@ -66,9 +67,9 @@ func getJob() (string, int) {
 }
 
 // Get请求数据
-func get(requestURL string, useProxy bool) ([]byte, error) {
+func get(requestURL string, useProxyGet bool) ([]byte, error) {
 	client := &http.Client{}
-	if useProxy {
+	if useProxyGet {
 		// fmt.Println(proxyURL)
 		proxy, _ := url.Parse(proxyURL)
 		tr := &http.Transport{
@@ -142,16 +143,21 @@ func getToken() string {
 	return tokenData.Token
 }
 
+func errorHandling() {
+	log.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
+	// 重新获取Token
+	cacheTime = 0
+	log.Println("请求发生错误,休息一会, 10秒后重试")
+	time.Sleep(time.Second * 10)
+}
+
 // getDevice 请求设备信息
 func getDevice() string {
 	url := apiServer + "/douyin/device/new/version/2.7.0"
 	res, err := get(url, false)
 	if err != nil {
 		log.Println(err)
-		fmt.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
-		log.Println("请求发生错误,休息一会, 10秒后重试")
-		cacheTime = 0
-		time.Sleep(time.Second * 10)
+		errorHandling()
 	}
 	// DEVICE 设备信息
 	type DEVICE struct {
@@ -229,13 +235,10 @@ func getUserFavoriteList(userID string) {
 	if err != nil {
 		return
 	}
-	res, err := get(getURL+query, true)
+	res, err := get(getURL+query, useProxy)
 	if err != nil {
 		log.Println(err)
-		fmt.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
-		log.Println("请求发生错误,休息一会, 10秒后重试")
-		cacheTime = 0
-		time.Sleep(time.Second * 10)
+		errorHandling()
 		defer wg.Done()
 		return
 	}
@@ -247,10 +250,8 @@ func getUserFavoriteList(userID string) {
 		resData := follow.(map[string]interface{})
 		// 待优化
 		if resData["max_time"] == nil {
-			log.Println(string(res))
-			log.Println("休息一会, 20秒后重试")
-			cacheTime = 0
-			time.Sleep(time.Second * 20)
+			log.Println("Incorrect return format")
+			errorHandling()
 			defer wg.Done()
 			return
 		}
@@ -372,7 +373,7 @@ func checkUserSaved(douyinID string) bool {
 
 // 获取代理IP
 func getProxy() string {
-	return "你的代理"
+	return "代理IP"
 }
 
 // 向服务器回传数据
@@ -432,7 +433,7 @@ func concurrency() {
 }
 
 // 检查是否需要更新Token
-func checkTimeout(useProxy bool) {
+func checkTimeout() {
 	// 从缓存中取出 device 和 token信息
 	device := cacheDevice
 	token := cacheToken
@@ -472,7 +473,7 @@ func main() {
 	// 干不完不准休息
 	for len(unknownUserList) > 0 {
 		// 定期获取Token和代理IP
-		checkTimeout(true)
+		checkTimeout()
 		// 并发执行任务
 		concurrency()
 	}
