@@ -20,11 +20,14 @@ logging.basicConfig(
   handlers=[logging.FileHandler('./log/'+ logFileName, 'w', 'utf-8')]
 )
 
-jobList = ['1212', '121111']
+info = {
+  'gainTotal': 0
+}
+
 class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
   # GET
   def do_GET(self):
-    sendData = {"err": 0, "data": jobList}
+    sendData = {"err": 0, "total": info["gainTotal"]}
     self.outputtxt(json.dumps(sendData))
 
   def do_POST(self):
@@ -48,6 +51,8 @@ class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
       # 获取当前时间戳
       Time = time.time()
       saveUserList = {}
+      # 保存添加到数据库数据的信息
+      info["gainTotal"] += len(userList)
       # 数据清洗 清洗重复ID
       for value in userList:
         saveUserList[value["uid"]] = value
@@ -76,10 +81,11 @@ class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
   def outputtxt(self, content):
     self.send_response(200)
     self.send_header('Content-type', 'application/json')
+    self.send_header('Access-Control-Allow-Origin', '*')
     self.end_headers()
     self.wfile.write(bytes(content, "utf-8"))
 
-def run():
+if __name__ == '__main__':
   port = 8000
   print('starting server, port', port)
 
@@ -88,6 +94,3 @@ def run():
   httpd = HTTPServer(server_address, testHTTPServer_RequestHandler)
   print('running server...')
   httpd.serve_forever()
-
-if __name__ == '__main__':
-  run()

@@ -32,7 +32,7 @@ const apiServer = "https://api.appsign.vip:2688"
 var follosUserNumber = 0
 
 // 还没有扫描用户列表
-var unknownUserList = []string{"58492842678"}
+var unknownUserList = []string{"79789629139"}
 
 // 待发送用户列表
 var tempUserList = []map[string]string{}
@@ -49,7 +49,7 @@ var dbConnect *sql.DB
 var wg sync.WaitGroup
 
 // 代理IP
-var useProxy = true
+var useProxy = false
 var proxyURL = "http://183.166.132.137:38747"
 
 // 当然是请求任务啦
@@ -373,7 +373,6 @@ func checkUserSaved(douyinID string) bool {
 
 // 获取代理IP
 func getProxy() string {
-	return "代理IP"
 }
 
 // 向服务器回传数据
