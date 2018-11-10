@@ -36,6 +36,7 @@ export default {
         },
         yAxis: {
           type: 'value',
+          scale: true,
           axisLabel: {
             formatter: '{value} 条'
           }
@@ -59,7 +60,15 @@ export default {
         },
         series: [{
           data: [],
-          type: 'line'
+          type: 'line',
+          lineStyle: {
+            color: '#009fe9'
+          },
+          markLine: {
+            data: [
+              {type: 'average', name: '平均值'}
+            ]
+          }
         }]
       }
     }
@@ -73,20 +82,24 @@ export default {
         this.push(val)
       }
     }
+    this.updata()
     // 每5秒刷新一次数据
-    setInterval(() => {
+    setInterval(this.updata, 5000)
+  },
+  methods: {
+    updata: function () {
       axios.get('http://127.0.0.1:8000/').then((res) => {
         const myDate = new Date()
         const value = res.data
         // 第一次统计效率恒为0
         if (this.total === 0) this.total = value.total
-        this.totalChartData.xAxis.data.queue((myDate.getHours() + 1) + ":" + (myDate.getMinutes() + 1) + ':' + (myDate.getSeconds() + 1), 720)
+        this.totalChartData.xAxis.data.queue(myDate.getHours() + ":" + myDate.getMinutes() + ':' + myDate.getSeconds(), 720)
         this.totalChartData.series[0].data.queue(value.total, 720)
-        this.efficiencyChartData.xAxis.data.queue((myDate.getHours() + 1) + ":" + (myDate.getMinutes() + 1) + ':' + (myDate.getSeconds() + 1), 720)
+        this.efficiencyChartData.xAxis.data.queue(myDate.getHours() + ":" + myDate.getMinutes() + ':' + myDate.getSeconds(), 720)
         this.efficiencyChartData.series[0].data.queue((value.total - this.total) / 5, 720)
         this.total = value.total
       })
-    }, 5000)
+    }
   }
 }
 </script>

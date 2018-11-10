@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	cTool "github.com/PUGE/cTool"
 	_ "github.com/denisenkom/go-mssqldb"
 )
 
@@ -23,7 +25,7 @@ import (
 const encrypt = false
 
 // server 母机地址
-const server = "http://127.0.0.1:8000"
+const server = "http://192.168.1.104:8000"
 
 // 调用Api接口
 const apiServer = "https://api.appsign.vip:2688"
@@ -32,7 +34,7 @@ const apiServer = "https://api.appsign.vip:2688"
 var follosUserNumber = 0
 
 // 还没有扫描用户列表
-var unknownUserList = []string{"79789629139"}
+var unknownUserList = []string{"93046294946"}
 
 // 待发送用户列表
 var tempUserList = []map[string]string{}
@@ -42,6 +44,9 @@ var cacheTime int64 = 1041218962781626500
 var cacheToken = ""
 var cacheDevice = ""
 
+// 采集器ID 每次启动会自动生成
+var clientID = ""
+
 // 错误次数
 var errorNumber = 1
 var dbConnect *sql.DB
@@ -49,7 +54,7 @@ var dbConnect *sql.DB
 var wg sync.WaitGroup
 
 // 代理IP
-var useProxy = false
+var useProxy = true
 var proxyURL = "http://183.166.132.137:38747"
 
 // 当然是请求任务啦
@@ -373,6 +378,7 @@ func checkUserSaved(douyinID string) bool {
 
 // 获取代理IP
 func getProxy() string {
+
 }
 
 // 向服务器回传数据
@@ -401,7 +407,7 @@ func formatUserList() {
 			sendData = md5Data + base64.StdEncoding.EncodeToString(favoriteList)
 		}
 		// 解析完了就把解析成功的数据发给母机
-		deliver(`{"err":0,"data":` + sendData + `}`)
+		deliver(`{"err":0,"clientID":"` + clientID + `","data":` + sendData + `}`)
 	}
 }
 
@@ -458,8 +464,18 @@ func checkTimeout() {
 }
 
 func main() {
+	// 获取必要的参数
+	var id = flag.String("id", "-1", "起始扫描用户ID")
+	var proxy = flag.Bool("proxy", false, "是否使用代理请求")
+	flag.Parse()
+	unknownUserList[0] = *id
+	useProxy = *proxy
+	fmt.Println("起始用户：", *id)
+	fmt.Println("启用代理：", *proxy)
+	// 生成采集器ID
+	clientID = cTool.GetRandomString(8)
 	// 连接数据库
-	conn, err := sql.Open("mssql", "server=localhost;user id=PUGE;password=mmit7750;")
+	conn, err := sql.Open("mssql", "server=192.168.1.104;user id=PUGE;password=mmit7750;")
 	if err != nil {
 		log.Fatal("Open connection failed:", err.Error())
 	}

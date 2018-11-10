@@ -86,9 +86,17 @@ class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
     self.wfile.write(bytes(content, "utf-8"))
 
 if __name__ == '__main__':
+  # 程序启动时向数据库查询数据总条数
+  conn = pyodbc.connect(r'DRIVER={SQL Server Native Client 11.0};SERVER=localhost;DATABASE=Douyin;UID=PUGE;PWD=mmit7750')
+  c = conn.cursor()
+  startCount = c.execute('SELECT COUNT(*) from DouYin.dbo.SIMPLE').fetchone()
+  print('Database data volume: ' + str(startCount[0]))
+  info["gainTotal"] = startCount[0]
+  conn.commit()
+  conn.close()
+  # 启动服务器
   port = 8000
   print('starting server, port', port)
-
   # Server settings
   server_address = ('0.0.0.0', port)
   httpd = HTTPServer(server_address, testHTTPServer_RequestHandler)
