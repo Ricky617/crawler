@@ -16,12 +16,13 @@ file = open('./log/' + logFileName , 'w' ,encoding='utf-8')
 file.close()
 logging.basicConfig(
   level=logging.INFO,
-  format='%(asctime)s: %(message)s',
-  handlers=[logging.FileHandler('./log/'+ logFileName, 'w', 'utf-8')]
+  format='%(asctime)s: %(message)s'
+  # handlers=[logging.FileHandler('./log/'+ logFileName, 'w', 'utf-8')]
 )
 
 info = {
-  'gainTotal': 0
+  'gainTotal': 0,
+  'clientList': {}
 }
 
 def saveUser(userList):
@@ -108,6 +109,8 @@ class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
     self.outputtxt(json.dumps(sendData))
 
   def do_POST(self):
+    # 开始处理时间
+    start =time.clock()
     content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
     post_data = self.rfile.read(content_length) # <--- Gets the data itself
     logging.debug("POST request,\nPath: %s\nHeaders:\n%s\n\nBody:\n%s\n", str(self.path), str(self.headers), post_data.decode('utf-8'))
@@ -118,53 +121,50 @@ class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
     #拆分url(也可根据拆分的url获取Get提交才数据),可以将不同的path和参数加载不同的html页面，或调用不同的方法返回不同的数据，来实现简单的网站或接口
     path = self.path
     # print(path)
-    if path == "/feed":
-      # 连接数据库
-      conn = pyodbc.connect(r'DRIVER={SQL Server Native Client 11.0};SERVER=localhost;DATABASE=Douyin;UID=PUGE;PWD=mmit7750')
-      # 获取数据库指针
-      c = conn.cursor()
-      unknowIdList = []
-      # 检查重复键
-      unknowUserList = []
-      simpleUnknowUserList = []
-      # 解析出用户列表数据
-      # print(resData)
-      userList = resData["data"]
+    # 连接数据库
+    conn = pyodbc.connect(r'DRIVER={SQL Server Native Client 11.0};SERVER=localhost;DATABASE=Douyin;UID=PUGE;PWD=mmit7750')
+    # 获取数据库指针
+    c = conn.cursor()
+    unknowIdList = []
+    # 检查重复键
+    unknowUserList = []
+    simpleUnknowUserList = []
+    # 解析出用户列表数据
+    # print(resData)
+    userList = resData["data"]
 
-      # 数据去重
-      tempIdList = []
-      newUserList = []
-      for ind, val in enumerate(userList):
-        if val["uid"] not in tempIdList:
-          tempIdList.append(val["uid"])
-          newUserList.append(val)
-      logging.info('receive ' + str(len(userList)) + ' user info!')
-      for ind, val in enumerate(newUserList):
-        # print(val)
-        # 查询简单用户信息库
-        c.execute("select isnull((select top(1) 1 from DouYin.dbo.SIMPLE where DOUYIN_ID = '" + val["uid"] + "'), 0)")
-        row = c.fetchone()
-        if (row[0] == 0):
-          simpleUnknowUserList.append(val)
-          unknowIdList.append(val["uid"])
-        # 查询详细用户信息库
-        c.execute("select isnull((select top(1) 1 from [dbo].[USER] where uid = '" + val["uid"] + "'), 0)")
-        row = c.fetchone()
-        if (row[0] == 0):
-          unknowUserList.append(val)
-      # 关闭数据库连接
-      conn.commit()
-      if (len(simpleUnknowUserList) > 0):
-        saveSimple(simpleUnknowUserList)
-      if len(unknowUserList) > 0:
-        saveUser(unknowUserList)
-    else:
-      # 解析出用户列表数据
-      userList = resData["data"]
-      if (resData["err"] == 0 and len(userList) > 0):
-        saveSimple(userList)
+    # 数据去重
+    tempIdList = []
+    newUserList = []
+    for ind, val in enumerate(userList):
+      if val["uid"] not in tempIdList:
+        tempIdList.append(val["uid"])
+        newUserList.append(val)
+    # logging.info('receive ' + str(len(userList)) + ' user info!')
+    for ind, val in enumerate(newUserList):
+      # print(val)
+      # 查询简单用户信息库
+      c.execute("select isnull((select top(1) 1 from DouYin.dbo.SIMPLE where DOUYIN_ID = '" + val["uid"] + "'), 0)")
+      row = c.fetchone()
+      if (row[0] == 0):
+        simpleUnknowUserList.append(val)
+        unknowIdList.append(val["uid"])
+      # 查询详细用户信息库
+      c.execute("select isnull((select top(1) 1 from [dbo].[USER] where uid = '" + val["uid"] + "'), 0)")
+      row = c.fetchone()
+      if (row[0] == 0):
+        unknowUserList.append(val)
+    # 关闭数据库连接
+    conn.commit()
+    if (len(simpleUnknowUserList) > 0):
+      saveSimple(simpleUnknowUserList)
+    if len(unknowUserList) > 0:
+      saveUser(unknowUserList)
     sendData = json.dumps({"err": 0, "data": unknowIdList})
-    logging.info('send data:' + sendData)
+    # logging.info('send data:' + sendData)
+    # 处理结束时间
+    end = time.clock()
+    print('Running time: %s Seconds'%(end - start))
     self.outputtxt(sendData)
  
   def outputtxt(self, content):
