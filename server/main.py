@@ -6,14 +6,17 @@ import json
 import time
 import pyodbc
 import logging
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from flask import Flask, request
 
-if not os.path.exists("./log/"):
-  os.mkdir("./log/")
-# Log输出配置
-logFileName = str(int(time.time())) + '.log'
-file = open('./log/' + logFileName , 'w' ,encoding='utf-8')
-file.close()
+app = Flask(__name__)
+
+# 日志文件存储
+# if not os.path.exists("./log/"):
+#   os.mkdir("./log/")
+# # Log输出配置
+# logFileName = str(int(time.time())) + '.log'
+# file = open('./log/' + logFileName , 'w' ,encoding='utf-8')
+# file.close()
 logging.basicConfig(
   level=logging.INFO,
   format='%(asctime)s: %(message)s'
@@ -25,9 +28,7 @@ info = {
   'clientList': {}
 }
 
-def saveUser(userList):
-  # 连接数据库
-  conn = pyodbc.connect(r'DRIVER={SQL Server Native Client 11.0};SERVER=localhost;DATABASE=Douyin;UID=PUGE;PWD=mmit7750')
+def saveUser(userList, conn):
   # 获取数据库指针
   c = conn.cursor()
   print('save ' + str(len(userList)) +' user info!')
@@ -63,10 +64,7 @@ def saveUser(userList):
   # print(sqlStr)
   c.execute(sqlStr)
   conn.commit()
-  conn.close()
-def saveSimple(userList):
-  # 连接数据库
-  conn = pyodbc.connect(r'DRIVER={SQL Server Native Client 11.0};SERVER=localhost;DATABASE=Douyin;UID=PUGE;PWD=mmit7750')
+def saveSimple(userList, conn):
   # 获取数据库指针
   c = conn.cursor()
   print('save ' + str(len(userList)) +' simple user info!')
@@ -100,79 +98,66 @@ def saveSimple(userList):
   # logging.info(sqlStr)
   c.execute(sqlStr)
   conn.commit()
+
+@app.route('/monitor', methods=['GET'])
+def monitor():
+  sendData = {"err": 0, "total": info["gainTotal"]}
+  return json.dumps(sendData)
+
+@app.route('/push', methods=['POST'])
+def push():
+  
+  # 开始处理时间
+  start =time.clock()
+
+  # 接收到的数据
+  resData = json.loads(request.data)
+  # 连接数据库
+  conn = pyodbc.connect(r'DRIVER={SQL Server Native Client 11.0};SERVER=localhost;DATABASE=Douyin;UID=PUGE;PWD=mmit7750')
+  # 获取数据库指针
+  c = conn.cursor()
+  unknowIdList = []
+  # 检查重复键
+  unknowUserList = []
+  simpleUnknowUserList = []
+  # 解析出用户列表数据
+  # print(resData)
+  userList = resData["data"]
+
+  # 数据去重
+  tempIdList = []
+  newUserList = []
+  for ind, val in enumerate(userList):
+    if val["uid"] not in tempIdList:
+      tempIdList.append(val["uid"])
+      newUserList.append(val)
+  # logging.info('receive ' + str(len(userList)) + ' user info!')
+  for ind, val in enumerate(newUserList):
+    # print(val)
+    # 查询简单用户信息库
+    c.execute("select isnull((select top(1) 1 from DouYin.dbo.SIMPLE where DOUYIN_ID = '" + val["uid"] + "'), 0)")
+    row = c.fetchone()
+    if (row[0] == 0):
+      simpleUnknowUserList.append(val)
+      unknowIdList.append(val["uid"])
+    # 查询详细用户信息库
+    c.execute("select isnull((select top(1) 1 from [dbo].[USER] where uid = '" + val["uid"] + "'), 0)")
+    row = c.fetchone()
+    if (row[0] == 0):
+      unknowUserList.append(val)
+  # 关闭数据库连接
+  conn.commit()
+  if (len(simpleUnknowUserList) > 0):
+    saveSimple(simpleUnknowUserList, conn)
+  if len(unknowUserList) > 0:
+    saveUser(unknowUserList, conn)
+  sendData = json.dumps({"err": 0, "data": unknowIdList})
+  # logging.info('send data:' + sendData)
   conn.close()
-
-class testHTTPServer_RequestHandler(BaseHTTPRequestHandler):
-  # GET
-  def do_GET(self):
-    sendData = {"err": 0, "total": info["gainTotal"]}
-    self.outputtxt(json.dumps(sendData))
-
-  def do_POST(self):
-    # 开始处理时间
-    start =time.clock()
-    content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
-    post_data = self.rfile.read(content_length) # <--- Gets the data itself
-    logging.debug("POST request,\nPath: %s\nHeaders:\n%s\n\nBody:\n%s\n", str(self.path), str(self.headers), post_data.decode('utf-8'))
-
-    # print(resData)
-    # 接收到的数据
-    resData = json.loads(post_data.decode('utf-8'))
-    #拆分url(也可根据拆分的url获取Get提交才数据),可以将不同的path和参数加载不同的html页面，或调用不同的方法返回不同的数据，来实现简单的网站或接口
-    path = self.path
-    # print(path)
-    # 连接数据库
-    conn = pyodbc.connect(r'DRIVER={SQL Server Native Client 11.0};SERVER=localhost;DATABASE=Douyin;UID=PUGE;PWD=mmit7750')
-    # 获取数据库指针
-    c = conn.cursor()
-    unknowIdList = []
-    # 检查重复键
-    unknowUserList = []
-    simpleUnknowUserList = []
-    # 解析出用户列表数据
-    # print(resData)
-    userList = resData["data"]
-
-    # 数据去重
-    tempIdList = []
-    newUserList = []
-    for ind, val in enumerate(userList):
-      if val["uid"] not in tempIdList:
-        tempIdList.append(val["uid"])
-        newUserList.append(val)
-    # logging.info('receive ' + str(len(userList)) + ' user info!')
-    for ind, val in enumerate(newUserList):
-      # print(val)
-      # 查询简单用户信息库
-      c.execute("select isnull((select top(1) 1 from DouYin.dbo.SIMPLE where DOUYIN_ID = '" + val["uid"] + "'), 0)")
-      row = c.fetchone()
-      if (row[0] == 0):
-        simpleUnknowUserList.append(val)
-        unknowIdList.append(val["uid"])
-      # 查询详细用户信息库
-      c.execute("select isnull((select top(1) 1 from [dbo].[USER] where uid = '" + val["uid"] + "'), 0)")
-      row = c.fetchone()
-      if (row[0] == 0):
-        unknowUserList.append(val)
-    # 关闭数据库连接
-    conn.commit()
-    if (len(simpleUnknowUserList) > 0):
-      saveSimple(simpleUnknowUserList)
-    if len(unknowUserList) > 0:
-      saveUser(unknowUserList)
-    sendData = json.dumps({"err": 0, "data": unknowIdList})
-    # logging.info('send data:' + sendData)
-    # 处理结束时间
-    end = time.clock()
-    print('Running time: %s Seconds'%(end - start))
-    self.outputtxt(sendData)
- 
-  def outputtxt(self, content):
-    self.send_response(200)
-    self.send_header('Content-type', 'application/json')
-    self.send_header('Access-Control-Allow-Origin', '*')
-    self.end_headers()
-    self.wfile.write(bytes(content, "utf-8"))
+  # 处理结束时间
+  end = time.clock()
+  print('Running time: %s Seconds'%(end - start))
+  return sendData
 
 if __name__ == '__main__':
   # 程序启动时向数据库查询数据总条数
@@ -184,10 +169,4 @@ if __name__ == '__main__':
   conn.commit()
   conn.close()
   # 启动服务器
-  port = 8200
-  print('starting server, port', port)
-  # Server settings
-  server_address = ('0.0.0.0', port)
-  httpd = HTTPServer(server_address, testHTTPServer_RequestHandler)
-  print('running server...')
-  httpd.serve_forever()
+  app.run()

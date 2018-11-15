@@ -12,9 +12,12 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	cTool "github.com/PUGE/cTool"
@@ -208,7 +211,7 @@ func getDevice() string {
 func getSign(token string, device string, userID string) (string, error) {
 	url := "http://127.0.0.1:8100/"
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()+3600000000000, 10)
-	query := "/aweme/v1/user/following/list/?_rticket=1542283051266435909&ac=wifi&aid=1128&app_name=awemechannel=360&count=20device_brand=OnePlus&dpi=420&language=zh&manifest_version_code=169&max_time=" + timestamp[:10] + "&os_api=27&os_version=8.1.0&resolution=1080%2A1920&retry_type=no_retry&ssmix=a&update_version_code=1692&user_id=" + userID + "&uuid=615720636968612&version_code=169&version_name=1.6.9" + device
+	query := "_rticket=1542283051266435909&ac=wifi&aid=1128&app_name=awemechannel=360&count=20device_brand=OnePlus&dpi=420&language=zh&manifest_version_code=169&max_time=" + timestamp[:10] + "&os_api=27&os_version=8.1.0&resolution=1080%2A1920&retry_type=no_retry&ssmix=a&update_version_code=1692&user_id=" + userID + "&uuid=615720636968612&version_code=169&version_name=1.6.9" + device
 	res, err := post(url, query, false)
 	if err != nil {
 		return "", err
@@ -232,7 +235,7 @@ func getQuery(userID string) (string, error) {
 
 func getUserFavoriteList(userID string) {
 	// 这个一看就知道是抖音官方接口啊
-	getURL := "https://aweme.snssdk.com"
+	getURL := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
 	query, err := getQuery(userID)
 	if err != nil {
 		log.Println("请求参数生成失败!")
@@ -241,6 +244,7 @@ func getUserFavoriteList(userID string) {
 		defer wg.Done()
 		return
 	}
+	// log.Println(getURL + query)
 	res, err := get(getURL+query, clientConfig.useProxy)
 	if err != nil {
 		log.Println("获取用户数据失败!")
@@ -347,6 +351,15 @@ func getWork(userID string) {
 
 // 获取代理IP
 func getProxy() string {
+	t1 := time.Now()
+	res, err := get("http://ip.11jsq.com/index.php/api/entry?method=proxyServer.generate_api_url&packid=1&fa=0&fetch_key=&qty=1&time=1&pro=&city=&port=1&format=txt&ss=1&css=&dt=0&specialTxt=3&specialJson=", false)
+	if err != nil {
+		log.Println(err)
+		errorHandling()
+	}
+	// 输出当前用户池
+	log.Println("get new proxy ip:", string(res), ", use time: ", time.Now().Sub(t1))
+	return string(res)
 }
 
 // 向服务器回传数据
@@ -362,7 +375,7 @@ func deliver(url string, sendData string) {
 	// 解析完了就把解析成功的数据发给母机
 	res, err := post(url, sendData, false)
 	if err == nil {
-		println(string(res))
+		// println(string(res))
 		type message struct {
 			Err  int
 			Data []string
@@ -376,7 +389,7 @@ func deliver(url string, sendData string) {
 		println("未知用户数量:", unknowUserNumber)
 		if unknowUserNumber > 0 {
 			for key := 0; key < unknowUserNumber; key++ {
-				if len(unknownUserList) <= 100 {
+				if len(unknownUserList) <= 500 {
 					unknownUserList = append(unknownUserList, messageData.Data[key])
 				}
 			}
@@ -407,19 +420,12 @@ func concurrency() {
 	// 解析完了就把解析成功的数据发给母机
 	sendData := `{"err":0,"workList":"` + strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1) + `","clientID":"` + clientConfig.clientID + `","data":` + string(text) + `}`
 	// println(sendData)
-	deliver(clientConfig.server+"/feed", sendData)
+	deliver(clientConfig.server+"/push", sendData)
 	tempUserList = tempUserList[:0]
 }
 
 // 更新代理Ip
 func checkProxyTimeout() {
-	timestamp := time.Now().UTC().UnixNano()
-	// 超过40秒更换新的代理IP
-	if (timestamp > proxyCacheTime+40000000000) && clientConfig.useProxy {
-		proxyURL = "http://" + getProxy()
-		// 刷新缓存
-		proxyCacheTime = timestamp
-	}
 }
 
 // 检查是否需要更新Token
@@ -460,7 +466,7 @@ func main() {
 	flag.Parse()
 	unknownUserList[0] = *id
 
-	clientConfig.server = "http://192.168.1.104:8200"
+	clientConfig.server = "http://127.0.0.1:5000"
 	clientConfig.useProxy = *proxy
 	clientConfig.thread = *threadNum
 	clientConfig.encrypt = false
@@ -469,11 +475,13 @@ func main() {
 	output()
 	fmt.Println("起始用户：", *id)
 	// 连接数据库
-	conn, err := sql.Open("mssql", "server=192.168.1.104;user id=PUGE;password=mmit7750;")
+	conn, err := sql.Open("mssql", "server=127.0.0.1;user id=PUGE;password=mmit7750;")
 	if err != nil {
 		log.Fatal("Open connection failed:", err.Error())
 	}
 	dbConnect = conn
+	signalChan := make(chan os.Signal, 1)                      //创建一个信号量的chan，缓存为1，（0,1）意义不大
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM) //让进城收集信号量。
 
 	// 请求100次服务器都返回错误 100%是我的垃圾服务挂了 洗洗睡吧
 	if errorNumber > 100 {
@@ -491,4 +499,6 @@ func main() {
 		concurrency()
 	}
 	println("all over!")
+	<-signalChan
+	log.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
 }

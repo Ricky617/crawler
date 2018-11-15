@@ -88,7 +88,7 @@ export default {
   },
   methods: {
     updata: function () {
-      axios.get('http://127.0.0.1:8200/').then((res) => {
+      axios.get('http://127.0.0.1:5000/monitor').then((res) => {
         const myDate = new Date()
         const value = res.data
         // 第一次统计效率恒为0
