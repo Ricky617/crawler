@@ -12,12 +12,9 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
-	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	cTool "github.com/PUGE/cTool"
@@ -38,7 +35,7 @@ var clientConfig config
 var follosUserNumber = 0
 
 // 还没有扫描用户列表
-var unknownUserList = []string{"93046294946"}
+var unknownUserList = []string{"85488042163"}
 var tempUserList = make([]map[string]interface{}, 0)
 
 // 缓存时间
@@ -91,7 +88,7 @@ func get(requestURL string, useProxyGet bool) ([]byte, error) {
 		return []byte(""), err
 	}
 
-	req.Header.Set("User-Agent", "Aweme/2.8.0 (iPhone; iOS 11.0; Scale/2.00)")
+	req.Header.Set("User-Agent", "Aweme")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := client.Do(req)
@@ -110,7 +107,7 @@ func get(requestURL string, useProxyGet bool) ([]byte, error) {
 func post(requestURL string, data string, useProxy bool) ([]byte, error) {
 	client := &http.Client{}
 	if useProxy {
-		fmt.Println(proxyURL)
+		// fmt.Println(proxyURL)
 		proxy, _ := url.Parse(proxyURL)
 		tr := &http.Transport{
 			Proxy: http.ProxyURL(proxy),
@@ -162,12 +159,19 @@ func getToken() string {
 }
 
 func errorHandling() {
-	log.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
 	// 重新获取Token
 	cacheTime = 0
 	proxyCacheTime = 0
-	log.Println("请求发生错误,休息一会, 10秒后重试")
-	time.Sleep(time.Second * 10)
+	if errorNumber > 5 {
+		errorNumber = 0
+		log.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
+		log.Println("发生错误次数过多,休息一会, 10分钟后重试")
+		time.Sleep(time.Second * 600)
+	} else {
+		log.Println("请求发生错误,休息一会, 10秒后重试")
+		time.Sleep(time.Second * 10)
+	}
+
 }
 
 // 从api.appsign.vip 请求设备信息
@@ -190,7 +194,6 @@ func getDevice() string {
 		New_user        int
 		Device_type     string
 		Os_version      string
-		OsAPISERVER     string
 		Screen_width    string
 		Device_platform string
 	}
@@ -204,14 +207,14 @@ func getDevice() string {
 		return ""
 	}
 	temp := deviceData.Data
-	return `openudid=` + temp.Openudid + `&idfa=` + temp.Idfa + `&vid=` + temp.Vid + `&install_id=` + strconv.Itoa(temp.Install_id) + `&iid=` + strconv.Itoa(temp.Iid) + `&device_id=` + strconv.Itoa(temp.Device_id) + `&new_user=` + strconv.Itoa(temp.New_user) + `&device_type=` + temp.Device_type + `&osAPISERVER=` + temp.OsAPISERVER + `&screen_width=` + temp.Screen_width + `&device_platform=` + temp.Device_platform
+	return `&openudid=` + temp.Openudid + `&idfa=` + temp.Idfa + `&vid=` + temp.Vid + `&install_id=` + strconv.Itoa(temp.Install_id) + `&iid=` + strconv.Itoa(temp.Iid) + `&device_id=` + strconv.Itoa(temp.Device_id) + `&new_user=` + strconv.Itoa(temp.New_user) + `&device_type=` + temp.Device_type + `&screen_width=` + temp.Screen_width + `&device_platform=` + temp.Device_platform
 }
 
 // getSign 获取签名信息
 func getSign(token string, device string, userID string) (string, error) {
 	url := "http://127.0.0.1:8100/"
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()+3600000000000, 10)
-	query := "_rticket=1542283051266435909&ac=wifi&aid=1128&app_name=awemechannel=360&count=20device_brand=OnePlus&dpi=420&language=zh&manifest_version_code=169&max_time=" + timestamp[:10] + "&os_api=27&os_version=8.1.0&resolution=1080%2A1920&retry_type=no_retry&ssmix=a&update_version_code=1692&user_id=" + userID + "&uuid=615720636968612&version_code=169&version_name=1.6.9" + device
+	query := "_rticket=1542368731370032509&ac=wifi&aid=1128&app_name=aweme&channel=360&count=49&device_brand=OnePlus&dpi=420&language=zh&manifest_version_code=169&max_time=" + timestamp[:10] + "&os_api=27&os_version=8.1.0&resolution=1080%2A1920&retry_type=no_retry&ssmix=a&update_version_code=1692&user_id=" + userID + "&uuid=615720636968612&version_code=169&version_name=1.6.9" + device
 	res, err := post(url, query, false)
 	if err != nil {
 		return "", err
@@ -244,7 +247,6 @@ func getUserFavoriteList(userID string) {
 		defer wg.Done()
 		return
 	}
-	// log.Println(getURL + query)
 	res, err := get(getURL+query, clientConfig.useProxy)
 	if err != nil {
 		log.Println("获取用户数据失败!")
@@ -261,7 +263,7 @@ func getUserFavoriteList(userID string) {
 		resData := follow.(map[string]interface{})
 		// 待优化
 		if resData["max_time"] == nil {
-			log.Println(follow)
+			// log.Println(follow)
 			errorHandling()
 			defer wg.Done()
 			return
@@ -280,6 +282,7 @@ func getUserFavoriteList(userID string) {
 }
 
 func getRandomUser(followings []interface{}) {
+	// log.Println(followings)
 	followingsNumber := len(followings)
 	if followingsNumber > 0 {
 		for follow := range followings {
@@ -352,7 +355,7 @@ func getWork(userID string) {
 // 获取代理IP
 func getProxy() string {
 	t1 := time.Now()
-	res, err := get("http://ip.11jsq.com/index.php/api/entry?method=proxyServer.generate_api_url&packid=1&fa=0&fetch_key=&qty=1&time=1&pro=&city=&port=1&format=txt&ss=1&css=&dt=0&specialTxt=3&specialJson=", false)
+	res, err := get("http://ip.11jsq.com/index.php/api/entry?method=proxyServer.generate_api_url&packid=0&fa=0&fetch_key=&qty=1&time=1&pro=&city=&port=1&format=txt&ss=1&css=&dt=1&specialTxt=3&specialJson=", false)
 	if err != nil {
 		log.Println(err)
 		errorHandling()
@@ -413,6 +416,9 @@ func concurrency() {
 	}
 	// 等待线程结束进行下一轮
 	wg.Wait()
+	if len(tempUserList) == 0 {
+		errorNumber++
+	}
 	// 向服务器回传数据
 	println("发送数据:" + strconv.Itoa(len(tempUserList)) + "条")
 	text, _ := json.Marshal(tempUserList)
@@ -426,6 +432,7 @@ func concurrency() {
 
 // 更新代理Ip
 func checkProxyTimeout() {
+
 }
 
 // 检查是否需要更新Token
@@ -480,8 +487,6 @@ func main() {
 		log.Fatal("Open connection failed:", err.Error())
 	}
 	dbConnect = conn
-	signalChan := make(chan os.Signal, 1)                      //创建一个信号量的chan，缓存为1，（0,1）意义不大
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM) //让进城收集信号量。
 
 	// 请求100次服务器都返回错误 100%是我的垃圾服务挂了 洗洗睡吧
 	if errorNumber > 100 {
@@ -499,6 +504,4 @@ func main() {
 		concurrency()
 	}
 	println("all over!")
-	<-signalChan
-	log.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
 }
