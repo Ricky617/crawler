@@ -26,7 +26,6 @@ type config struct {
 	encrypt  bool   // 启用加密
 	clientID string // 采集器ID
 	thread   int    // 最大线程数量
-	useProxy bool   // 使用代理
 }
 
 var clientConfig config
@@ -43,6 +42,10 @@ var proxyCacheTime int64 = 1041218962781626500
 var cacheTime int64 = 1041218962781626500
 var cacheToken = ""
 var cacheDevice = ""
+
+// MQ实例
+var conn *Connection
+var channel *Channel
 
 // 错误次数
 var errorNumber = 1
@@ -104,19 +107,8 @@ func get(requestURL string, useProxyGet bool) ([]byte, error) {
 }
 
 // Post请求数据
-func post(requestURL string, data string, useProxy bool) ([]byte, error) {
+func post(requestURL string, data string) ([]byte, error) {
 	client := &http.Client{}
-	if useProxy {
-		// fmt.Println(proxyURL)
-		proxy, _ := url.Parse(proxyURL)
-		tr := &http.Transport{
-			Proxy: http.ProxyURL(proxy),
-		}
-		client = &http.Client{
-			Transport: tr,
-			Timeout:   time.Second * 15, //超时时间
-		}
-	}
 	req, err := http.NewRequest("POST", requestURL, strings.NewReader(data))
 	if err != nil {
 		log.Println(err.Error())
@@ -163,10 +155,13 @@ func errorHandling() {
 	cacheTime = 0
 	proxyCacheTime = 0
 	if errorNumber > 5 {
-		errorNumber = 0
 		log.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
 		log.Println("发生错误次数过多,休息一会, 10分钟后重试")
 		time.Sleep(time.Second * 600)
+	} else if errorNumber > 7 {
+		log.Println(strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1))
+		log.Println("发生错误次数过多,休息一会, 20分钟后重试")
+		time.Sleep(time.Second * 1200)
 	} else {
 		log.Println("请求发生错误,休息一会, 10秒后重试")
 		time.Sleep(time.Second * 10)
@@ -242,14 +237,6 @@ func getUserFavoriteList(userID string) {
 	query, err := getQuery(userID)
 	if err != nil {
 		log.Println("请求参数生成失败!")
-		log.Println(err)
-		errorHandling()
-		defer wg.Done()
-		return
-	}
-	res, err := get(getURL+query, clientConfig.useProxy)
-	if err != nil {
-		log.Println("获取用户数据失败!")
 		log.Println(err)
 		errorHandling()
 		defer wg.Done()
@@ -352,19 +339,6 @@ func getWork(userID string) {
 	}
 }
 
-// 获取代理IP
-func getProxy() string {
-	t1 := time.Now()
-	res, err := get("http://ip.11jsq.com/index.php/api/entry?method=proxyServer.generate_api_url&packid=0&fa=0&fetch_key=&qty=1&time=1&pro=&city=&port=1&format=txt&ss=1&css=&dt=1&specialTxt=3&specialJson=", false)
-	if err != nil {
-		log.Println(err)
-		errorHandling()
-	}
-	// 输出当前用户池
-	log.Println("get new proxy ip:", string(res), ", use time: ", time.Now().Sub(t1))
-	return string(res)
-}
-
 // 向服务器回传数据
 func deliver(url string, sendData string) {
 	if clientConfig.encrypt {
@@ -418,7 +392,9 @@ func concurrency() {
 	wg.Wait()
 	if len(tempUserList) == 0 {
 		errorNumber++
+		return
 	}
+	errorNumber = 0
 	// 向服务器回传数据
 	println("发送数据:" + strconv.Itoa(len(tempUserList)) + "条")
 	text, _ := json.Marshal(tempUserList)
@@ -428,11 +404,6 @@ func concurrency() {
 	// println(sendData)
 	deliver(clientConfig.server+"/push", sendData)
 	tempUserList = tempUserList[:0]
-}
-
-// 更新代理Ip
-func checkProxyTimeout() {
-
 }
 
 // 检查是否需要更新Token
@@ -460,7 +431,7 @@ func checkTokenTimeout() {
 }
 
 func output() {
-	fmt.Printf("采集器ID: %s\n\r启用代理: %t\n\r线程数量: %d\n\r", clientConfig.clientID, clientConfig.useProxy, clientConfig.thread)
+	fmt.Printf("采集器ID: %s\n\r线程数量: %d\n\r", clientConfig.clientID, clientConfig.thread)
 	time.Sleep(time.Second * 10)
 }
 
@@ -474,7 +445,6 @@ func main() {
 	unknownUserList[0] = *id
 
 	clientConfig.server = "http://127.0.0.1:5000"
-	clientConfig.useProxy = *proxy
 	clientConfig.thread = *threadNum
 	clientConfig.encrypt = false
 	// 生成采集器ID
@@ -499,7 +469,6 @@ func main() {
 
 		// 检查代理IP和Token是否过期
 		checkTokenTimeout()
-		checkProxyTimeout()
 		// 并发执行任务
 		concurrency()
 	}
