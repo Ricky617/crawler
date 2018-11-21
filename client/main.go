@@ -1,10 +1,7 @@
 package main
 
 import (
-	"crypto/md5"
 	"database/sql"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,6 +16,7 @@ import (
 
 	cTool "github.com/PUGE/cTool"
 	_ "github.com/denisenkom/go-mssqldb"
+	"github.com/streadway/amqp"
 )
 
 type config struct {
@@ -35,7 +33,6 @@ var follosUserNumber = 0
 
 // 还没有扫描用户列表
 var unknownUserList = []string{"85488042163"}
-var tempUserList = make([]map[string]interface{}, 0)
 
 // 缓存时间
 var proxyCacheTime int64 = 1041218962781626500
@@ -43,9 +40,9 @@ var cacheTime int64 = 1041218962781626500
 var cacheToken = ""
 var cacheDevice = ""
 
-// MQ实例
-var conn *Connection
-var channel *Channel
+// 消息队列
+var mqConn *amqp.Connection
+var mqChannel *amqp.Channel
 
 // 错误次数
 var errorNumber = 1
@@ -71,19 +68,8 @@ func getJob() (string, int) {
 }
 
 // Get请求数据
-func get(requestURL string, useProxyGet bool) ([]byte, error) {
+func get(requestURL string) ([]byte, error) {
 	client := &http.Client{}
-	if useProxyGet {
-		// fmt.Println(proxyURL)
-		proxy, _ := url.Parse(proxyURL)
-		tr := &http.Transport{
-			Proxy: http.ProxyURL(proxy),
-		}
-		client = &http.Client{
-			Transport: tr,
-			Timeout:   time.Second * 15, //超时时间
-		}
-	}
 
 	// fmt.Printf(requestURL)
 	req, err := http.NewRequest("GET", requestURL, nil)
@@ -133,7 +119,7 @@ func post(requestURL string, data string) ([]byte, error) {
 // 获取新的设备信息:有效期60分钟永久
 func getToken() string {
 	url := "https://api.appsign.vip:2688/token/douyin/version/2.7.0"
-	res, err := get(url, false)
+	res, err := get(url)
 	if err != nil {
 		log.Println(err)
 		errorHandling()
@@ -172,7 +158,7 @@ func errorHandling() {
 // 从api.appsign.vip 请求设备信息
 func getDevice() string {
 	url := "https://api.appsign.vip:2688/douyin/device/new"
-	res, err := get(url, false)
+	res, err := get(url)
 	if err != nil {
 		log.Println(err)
 		errorHandling()
@@ -210,7 +196,7 @@ func getSign(token string, device string, userID string) (string, error) {
 	url := "http://127.0.0.1:8100/"
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()+3600000000000, 10)
 	query := "_rticket=1542368731370032509&ac=wifi&aid=1128&app_name=aweme&channel=360&count=49&device_brand=OnePlus&dpi=420&language=zh&manifest_version_code=169&max_time=" + timestamp[:10] + "&os_api=27&os_version=8.1.0&resolution=1080%2A1920&retry_type=no_retry&ssmix=a&update_version_code=1692&user_id=" + userID + "&uuid=615720636968612&version_code=169&version_name=1.6.9" + device
-	res, err := post(url, query, false)
+	res, err := post(url, query)
 	if err != nil {
 		return "", err
 	}
@@ -237,6 +223,14 @@ func getUserFavoriteList(userID string) {
 	query, err := getQuery(userID)
 	if err != nil {
 		log.Println("请求参数生成失败!")
+		log.Println(err)
+		errorHandling()
+		defer wg.Done()
+		return
+	}
+	res, err := get(getURL + query)
+	if err != nil {
+		log.Println("获取用户数据失败!")
 		log.Println(err)
 		errorHandling()
 		defer wg.Done()
@@ -274,104 +268,33 @@ func getRandomUser(followings []interface{}) {
 	if followingsNumber > 0 {
 		for follow := range followings {
 			author := followings[follow].(map[string]interface{})
-			tempUserList = append(tempUserList, author)
+			text, _ := json.Marshal(author)
+			// println(string(text))
+			sendMessage(string(text))
 		}
 	}
 }
 
-func work(workList string, userID string) {
-	decodedData := []byte(workList)
-	// 如果设置了加密需要先解密
-	if clientConfig.encrypt {
-		md5Data := workList[:32]
-		data := workList[32:]
-		// fmt.Print(data)
-		decodedData, err := base64.StdEncoding.DecodeString(data)
-		// 解析失败了那0.01%是伪造的请求, 99.9%是服务端挂了,那还执行毛任务啊歇着吧
-		if err == nil {
-			has := md5.Sum(decodedData)
-			md5Check := fmt.Sprintf("%x", has)
-			if md5Data == md5Check {
-				fmt.Printf("数据MD5校验失败!")
-				return
-			}
-		} else {
-			fmt.Printf(err.Error())
-			return
+func getWork() {
+	queue, err := mqChannel.QueueDeclare("douyin-unknow", false, false, false, false, nil)
+	if err != nil {
+		log.Fatalf("queue.declare source: %s", err)
+	}
+	unknownUserList = unknownUserList[0:0]
+	for key := 0; key < clientConfig.thread; key++ {
+		msg, _, err := mqChannel.Get(
+			queue.Name, // queue name
+			true,       // auto-ack
+		)
+		if nil != err {
+			log.Fatalf("basic.consume source: %s", err)
+		}
+		if len(msg.Body) != 0 {
+			unknownUserList = append(unknownUserList, string(msg.Body))
 		}
 	}
-	// 开始解析服务器发来什么玩意
-	var message interface{}
-	if err := json.Unmarshal(decodedData, &message); err == nil {
-		resData := message.(map[string]interface{})
-		// fmt.Println(reflect.TypeOf(resData["data"]))
-		workList := resData["data"].([]interface{})
-		for _, workItem := range workList {
-			fmt.Println(workItem)
-		}
-	}
-}
-
-// 获取工作的函数
-func getWork(userID string) {
-	// 没有找到工作要你有毛用啊 继续找
-	data, err := getJob()
-	if err != 0 {
-		for true {
-			time.Sleep(time.Duration(1) * time.Second)
-			data, err := getJob()
-			if err != 0 {
-				fmt.Println("第" + strconv.Itoa(errorNumber) + "次尝试与服务器建立连接失败,1分钟后重试!")
-				errorNumber++
-			} else {
-				work(data, userID)
-			}
-			// 请求100次服务器都返回错误 100%是我的垃圾服务挂了 洗洗睡吧
-			if errorNumber > 10 {
-				// 问我为什么是中文输出(这样岂不是很没有逼格?), 我的回答是:要照顾每个使用者的智商(我其实也不懂英文啊!!!)
-				fmt.Println("与服务器建立连接失败!")
-				break
-			}
-			// 没有找到工作要你有毛用啊 继续找
-		}
-	} else {
-		work(data, userID)
-	}
-}
-
-// 向服务器回传数据
-func deliver(url string, sendData string) {
-	if clientConfig.encrypt {
-		byteData := []byte(sendData)
-		// 进行MD5加密
-		h := md5.New()
-		h.Write(byteData)
-		md5Data := hex.EncodeToString(h.Sum(nil))
-		sendData = md5Data + base64.StdEncoding.EncodeToString(byteData)
-	}
-	// 解析完了就把解析成功的数据发给母机
-	res, err := post(url, sendData, false)
-	if err == nil {
-		// println(string(res))
-		type message struct {
-			Err  int
-			Data []string
-		}
-		var messageData message
-		if err := json.Unmarshal(res, &messageData); err != nil {
-			log.Println(err.Error())
-			return
-		}
-		unknowUserNumber := len(messageData.Data)
-		println("未知用户数量:", unknowUserNumber)
-		if unknowUserNumber > 0 {
-			for key := 0; key < unknowUserNumber; key++ {
-				if len(unknownUserList) <= 500 {
-					unknownUserList = append(unknownUserList, messageData.Data[key])
-				}
-			}
-		}
-	}
+	// println(unknownUserList)
+	// time.Sleep(time.Second * 1)
 }
 
 // 并发执行任务
@@ -390,20 +313,7 @@ func concurrency() {
 	}
 	// 等待线程结束进行下一轮
 	wg.Wait()
-	if len(tempUserList) == 0 {
-		errorNumber++
-		return
-	}
-	errorNumber = 0
-	// 向服务器回传数据
-	println("发送数据:" + strconv.Itoa(len(tempUserList)) + "条")
-	text, _ := json.Marshal(tempUserList)
-	// log.Println(string(text))
-	// 解析完了就把解析成功的数据发给母机
-	sendData := `{"err":0,"workList":"` + strings.Replace(strings.Trim(fmt.Sprint(unknownUserList), "[]"), " ", ",", -1) + `","clientID":"` + clientConfig.clientID + `","data":` + string(text) + `}`
-	// println(sendData)
-	deliver(clientConfig.server+"/push", sendData)
-	tempUserList = tempUserList[:0]
+	getWork()
 }
 
 // 检查是否需要更新Token
@@ -435,14 +345,59 @@ func output() {
 	time.Sleep(time.Second * 10)
 }
 
+func rabbit() {
+	var err error
+	// 注册消息队列
+	mqConn, err = amqp.Dial("amqp://admin:admin@127.0.0.1:5672/")
+	if err != nil {
+		log.Fatal("Open connection failed:", err.Error())
+	}
+
+	mqChannel, err = mqConn.Channel()
+	if err != nil {
+		log.Fatal("Failed to open a channel:", err.Error())
+	}
+
+	_, err = mqChannel.QueueDeclare(
+		"douyin-uncheck",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatal("Failed to declare a queue:", err.Error())
+	}
+}
+
+func sendMessage(message string) {
+	err := mqChannel.Publish(
+		"",
+		"douyin-uncheck",
+		false,
+		false,
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(message),
+		})
+	if err != nil {
+		log.Fatal("Failed to publish a message:", err.Error())
+	}
+}
+
 // 程序主入口
 func main() {
 	// // 获取必要的参数
 	var id = flag.String("id", "-1", "起始扫描用户ID")
-	var proxy = flag.Bool("proxy", false, "是否使用代理请求")
 	var threadNum = flag.Int("thread", 10, "线程数量")
 	flag.Parse()
 	unknownUserList[0] = *id
+
+	// defer mqConn.Close()
+	// defer mqChannel.Close()
+	// 注册消息队列
+	rabbit()
 
 	clientConfig.server = "http://127.0.0.1:5000"
 	clientConfig.thread = *threadNum
