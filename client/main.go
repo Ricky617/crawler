@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -14,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	cTool "github.com/PUGE/cTool"
 	_ "github.com/denisenkom/go-mssqldb"
 	"github.com/streadway/amqp"
 )
@@ -52,20 +50,6 @@ var wg sync.WaitGroup
 
 // 代理IP
 var proxyURL = "http://42.6.43.198:13267"
-
-// 当然是请求任务啦
-func getJob() (string, int) {
-	resp, err := http.Get(clientConfig.server)
-	if err != nil {
-		return err.Error(), 1
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err.Error(), 1
-	}
-	return string(body), 0
-}
 
 // Get请求数据
 func get(requestURL string) ([]byte, error) {
@@ -219,7 +203,7 @@ func getQuery(userID string) (string, error) {
 
 func getUserFavoriteList(userID string) {
 	// 这个一看就知道是抖音官方接口啊
-	getURL := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
+	getURL := "http://api.amemv.com/aweme/v1/user/?"
 	query, err := getQuery(userID)
 	if err != nil {
 		log.Println("请求参数生成失败!")
@@ -242,56 +226,57 @@ func getUserFavoriteList(userID string) {
 	if err := json.Unmarshal(res, &follow); err == nil {
 		// 我猜他应该是这个格式数据
 		resData := follow.(map[string]interface{})
-		// 待优化
-		if resData["max_time"] == nil {
-			// log.Println(follow)
-			errorHandling()
-			defer wg.Done()
-			return
-		}
+		// // 待优化
+		// if resData["max_time"] == nil {
+		// 	log.Println(follow)
+		// 	errorHandling()
+		// 	defer wg.Done()
+		// 	return
+		// }
 		// maxTime := resData["max_time"].(float64)
 		statusCode := resData["status_code"].(float64)
 		if int(statusCode) == 0 {
 			// 清洗数据
-			followings := resData["followings"].([]interface{})
-			getRandomUser(followings)
+			userData := resData["user"].(map[string]interface{})
+			println(userData)
+			getRandomUser(userData)
+		} else {
+			log.Println(follow)
+			errorHandling()
+			//defer wg.Done()
+			return
 		}
 	} else {
 		log.Println(err.Error())
 	}
-	defer wg.Done()
+	// defer wg.Done()
 }
 
-func getRandomUser(followings []interface{}) {
-	// log.Println(followings)
-	followingsNumber := len(followings)
-	if followingsNumber > 0 {
-		for follow := range followings {
-			author := followings[follow].(map[string]interface{})
-			text, _ := json.Marshal(author)
-			// println(string(text))
-			sendMessage(string(text))
-		}
-	}
+func getRandomUser(followings map[string]interface{}) {
+	// println(followings)
+	text, _ := json.Marshal(followings)
+	println(string(text))
+	// // println(string(text))
+	sendMessage(string(text))
 }
+
+var msg amqp.Delivery
 
 func getWork() {
-	queue, err := mqChannel.QueueDeclare("douyin-unknow", false, false, false, false, nil)
+	queue, err := mqChannel.QueueDeclare("douyin-unknow-id-10000000000", false, false, false, false, nil)
 	if err != nil {
 		log.Fatalf("queue.declare source: %s", err)
 	}
 	unknownUserList = unknownUserList[0:0]
-	for key := 0; key < clientConfig.thread; key++ {
-		msg, _, err := mqChannel.Get(
-			queue.Name, // queue name
-			true,       // auto-ack
-		)
-		if nil != err {
-			log.Fatalf("basic.consume source: %s", err)
-		}
-		if len(msg.Body) != 0 {
-			unknownUserList = append(unknownUserList, string(msg.Body))
-		}
+	msg, _, err = mqChannel.Get(
+		queue.Name, // queue name
+		false,      // auto-ack
+	)
+	if nil != err {
+		log.Fatalf("basic.consume source: %s", err)
+	}
+	if len(msg.Body) != 0 {
+		unknownUserList = append(unknownUserList, string(msg.Body))
 	}
 	// println(unknownUserList)
 	// time.Sleep(time.Second * 1)
@@ -348,7 +333,7 @@ func output() {
 func rabbit() {
 	var err error
 	// 注册消息队列
-	mqConn, err = amqp.Dial("amqp://admin:admin@127.0.0.1:5672/")
+	mqConn, err = amqp.Dial("amqp://admin:admin@39.105.78.11:5672/")
 	if err != nil {
 		log.Fatal("Open connection failed:", err.Error())
 	}
@@ -359,7 +344,7 @@ func rabbit() {
 	}
 
 	_, err = mqChannel.QueueDeclare(
-		"douyin-uncheck",
+		"check-id-10000000000",
 		false,
 		false,
 		false,
@@ -374,7 +359,7 @@ func rabbit() {
 func sendMessage(message string) {
 	err := mqChannel.Publish(
 		"",
-		"douyin-uncheck",
+		"check-id-10000000000",
 		false,
 		false,
 		amqp.Publishing{
@@ -383,49 +368,57 @@ func sendMessage(message string) {
 		})
 	if err != nil {
 		log.Fatal("Failed to publish a message:", err.Error())
+	} else {
+		msg.Ack(false)
 	}
 }
 
 // 程序主入口
 func main() {
-	// // 获取必要的参数
-	var id = flag.String("id", "-1", "起始扫描用户ID")
-	var threadNum = flag.Int("thread", 10, "线程数量")
-	flag.Parse()
-	unknownUserList[0] = *id
-
-	// defer mqConn.Close()
-	// defer mqChannel.Close()
-	// 注册消息队列
 	rabbit()
-
-	clientConfig.server = "http://127.0.0.1:5000"
-	clientConfig.thread = *threadNum
-	clientConfig.encrypt = false
-	// 生成采集器ID
-	clientConfig.clientID = cTool.GetRandomString(8)
-	output()
-	fmt.Println("起始用户：", *id)
-	// 连接数据库
-	conn, err := sql.Open("mssql", "server=127.0.0.1;user id=PUGE;password=mmit7750;")
-	if err != nil {
-		log.Fatal("Open connection failed:", err.Error())
-	}
-	dbConnect = conn
-
-	// 请求100次服务器都返回错误 100%是我的垃圾服务挂了 洗洗睡吧
-	if errorNumber > 100 {
-		fmt.Println("与服务器建立连接失败!")
-	}
-	// 干不完不准休息
-	for len(unknownUserList) > 0 {
-		// 清空获取用户数量
-		follosUserNumber = 0
-
-		// 检查代理IP和Token是否过期
+	for true {
+		getWork()
 		checkTokenTimeout()
-		// 并发执行任务
-		concurrency()
+		getUserFavoriteList(unknownUserList[0])
 	}
-	println("all over!")
+	// // // 获取必要的参数
+	// var id = flag.String("id", "-1", "起始扫描用户ID")
+	// var threadNum = flag.Int("thread", 10, "线程数量")
+	// flag.Parse()
+	// unknownUserList[0] = *id
+
+	// // defer mqConn.Close()
+	// // defer mqChannel.Close()
+	// // 注册消息队列
+	// rabbit()
+
+	// clientConfig.server = "http://127.0.0.1:5000"
+	// clientConfig.thread = *threadNum
+	// clientConfig.encrypt = false
+	// // 生成采集器ID
+	// clientConfig.clientID = cTool.GetRandomString(8)
+	// output()
+	// fmt.Println("起始用户：", *id)
+	// // 连接数据库
+	// conn, err := sql.Open("mssql", "server=127.0.0.1;user id=PUGE;password=mmit7750;")
+	// if err != nil {
+	// 	log.Fatal("Open connection failed:", err.Error())
+	// }
+	// dbConnect = conn
+
+	// // 请求100次服务器都返回错误 100%是我的垃圾服务挂了 洗洗睡吧
+	// if errorNumber > 100 {
+	// 	fmt.Println("与服务器建立连接失败!")
+	// }
+	// // 干不完不准休息
+	// for len(unknownUserList) > 0 {
+	// 	// 清空获取用户数量
+	// 	follosUserNumber = 0
+
+	// 	// 检查代理IP和Token是否过期
+	// 	checkTokenTimeout()
+	// 	// 并发执行任务
+	// 	concurrency()
+	// }
+	// println("all over!")
 }
