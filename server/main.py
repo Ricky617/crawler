@@ -41,17 +41,33 @@ def saveUser(val):
   # logging.info(userList)
   # 拼接SQL语句一次性插入
   with connection.cursor() as cursor:
-    sqlStr = 'INSERT INTO `1` VALUES '
+    sqlStr = 'INSERT IGNORE INTO `1` VALUES '
     # print(val)
+    if 'uid' not in val:
+      return
+    if 'custom_verify' not in val:
+      val['custom_verify'] = ''
+    if 'enterprise_verify_reason' not in val:
+      val['enterprise_verify_reason'] = ''
+    if 'signature' not in val:
+      val['signature'] = ''
     # 去除非法字符
     val['nickname'] = val['nickname'].replace('\n', '\\n')
     val['custom_verify'] = val['custom_verify'].replace("'", "’")
     val['enterprise_verify_reason'] = val['enterprise_verify_reason'].replace("'", "’")
     val['nickname'] = val['nickname'].replace("'", "’")
+    val['nickname'] = val['nickname'].replace("\\", '\\\\')
     val['signature'] = val['signature'].replace("'", "’")
     val['signature'] = val['signature'].replace('\n', '\\n')
     val['signature'] = val['signature'].replace("(", "\(")
     val['signature'] = val['signature'].replace(")", "\)")
+    # print(val)
+    if 'college_name' not in val:
+      val['college_name'] = ''
+    if 'enroll_year' not in val:
+      val['enroll_year'] = ''
+    if 'school_name' not in val:
+      val['school_name'] = ''
     # 如果最是最后一条则拼接以分号结尾的SQL语句
     sqlStr += "(%s, %d, '%s', %d, %d, '%s', %d, '%s', '%s', '%s',  %d, %d, %d, '%s', '%s', '%s', %d, %d, %d, %d,  %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d,  %d, %d, %d, %d, %d, %d, %d, %d, %d, %d,  %d, %d, %d, %d, %d, '%s', '%s', %d, %d, %d,  %d, '%s', %d, %d, %d, %d, '%s', %d, %d, '%s',  %d, %d, '%s', %d, %d, '%s', %d, '%s', '%s', %d,  %d, '%s', %d, %d, %d, '%s', %d, %d, '%s', %d,  %d, %d, %d, %d, %d, %d, '%s', %d, %d, %d,   %d, %d, %d, '%s', '%s', %d, '%s', '%s', '%s', '%s',  %d, %d, %d, %d, %d, %d, %d, %d );" % (val['uid'], val['accept_private_policy'], val['account_region'], val['apple_account'], val['authority_status'], val['avatar_uri'], val['aweme_count'], val['birthday'], val['city'], val['college_name'],
 
@@ -76,7 +92,7 @@ def saveUser(val):
     val['with_commerce_entry'], val['with_commerce_newbie_task'], val['with_dou_entry'], val['with_douplus_entry'], val['with_fusion_shop_entry'], val['with_item_commerce_entry'], val['with_new_goods'], val['with_shop_entry'])
 
     # 插入数据库
-    logging.info(sqlStr)
+    # logging.info(sqlStr)
     # sqlStr = sqlStr.replace('False', '0')
     # sqlStr = sqlStr.replace('True', '1')
     # print(sqlStr)
@@ -89,7 +105,7 @@ def monitor():
   sendData = {"err": 0, "total": info["gainTotal"]}
   return json.dumps(sendData)
 
-parameters = pika.URLParameters('amqp://admin:admin@39.105.78.11:5672/')
+parameters = pika.URLParameters('amqp://admin:admin@127.0.0.1:5672/')
 mqConnection = pika.BlockingConnection(parameters)
 
 unCheckChannel = mqConnection.channel()

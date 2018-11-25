@@ -333,7 +333,7 @@ func output() {
 func rabbit() {
 	var err error
 	// 注册消息队列
-	mqConn, err = amqp.Dial("amqp://admin:admin@39.105.78.11:5672/")
+	mqConn, err = amqp.Dial("amqp://admin:admin@127.0.0.1:5672/")
 	if err != nil {
 		log.Fatal("Open connection failed:", err.Error())
 	}
