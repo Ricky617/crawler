@@ -6,7 +6,6 @@ import json
 import time
 import pika
 import time
-import pyodbc
 import logging
 import pymysql.cursors
 from flask import Flask, request
