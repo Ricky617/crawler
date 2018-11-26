@@ -58,6 +58,7 @@ def saveUser(val):
     val['enterprise_verify_reason'] = val['enterprise_verify_reason'].replace("'", "’")
     val['nickname'] = val['nickname'].replace("'", "’")
     val['nickname'] = val['nickname'].replace("\\", '\\\\')
+    val['signature'] = val['signature'].replace("\\", '\\\\')
     val['signature'] = val['signature'].replace("'", "’")
     val['province'] = val['province'].replace("'", "\\'")
     val['location'] = val['location'].replace("'", "\\'")
@@ -75,9 +76,9 @@ def saveUser(val):
     if 'school_name' not in val:
       val['school_name'] = ''
     # 如果最是最后一条则拼接以分号结尾的SQL语句
-    sqlStr += "(%s, %d, '%s', %d, %d, '%s', %d, '%s', '%s', '%s',  %d, %d, %d, '%s', '%s', '%s', %d, %d, %d, %d,  %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d,  %d, %d, %d, %d, %d, %d, %d, %d, %d, %d,  %d, %d, %d, %d, %d, '%s', '%s', %d, %d, %d,  %d, '%s', %d, %d, %d, %d, '%s', %d, %d, '%s',  %d, %d, '%s', %d, %d, '%s', %d, '%s', '%s', %d,  %d, '%s', %d, %d, %d, '%s', %d, %d, '%s', %d,  %d, %d, %d, %d, %d, %d, '%s', %d, %d, %d,   %d, %d, %d, '%s', '%s', %d, '%s', '%s', '%s', '%s',  %d, %d, %d, %d, %d, %d, %d, %d );" % (val['uid'], val['accept_private_policy'], val['account_region'], val['apple_account'], val['authority_status'], val['avatar_uri'], val['aweme_count'], val['birthday'], val['city'], val['college_name'],
+    sqlStr += "(%s, %d, '%s', %d, '%s', '%s', '%s',  %d, %d, %d, '%s', '%s', '%s', %d, %d,  %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d,  %d, %d, %d, %d, %d, %d, %d, %d, %d, %d,  %d, %d, %d, %d, %d, '%s', '%s', %d, %d, %d,  %d, '%s', %d, %d, %d, %d, '%s', %d, %d, '%s',  %d, %d, '%s', %d, %d, '%s', %d, '%s', '%s', %d,  %d, '%s', %d, %d, %d, '%s', %d, %d, '%s', %d,  %d, %d, %d, %d, %d, %d, '%s', %d, %d, %d,   %d, %d, %d, '%s', '%s', %d, '%s', '%s', '%s', '%s',  %d, %d, %d, %d, %d, %d, %d, %d );" % (val['uid'], val['authority_status'], val['avatar_uri'], val['aweme_count'], val['birthday'], val['city'], val['college_name'],
 
-    val['comment_setting'], val['commerce_user_level'], val['constellation'], val['country'], val['custom_verify'], val['district'], val['dongtai_count'], val['dou_plus_share_location'], val['download_prompt_ts'], val['download_setting'], 
+    val['commerce_user_level'], val['constellation'], val['country'], val['custom_verify'], val['district'], val['dongtai_count'], val['download_setting'], 
 
     val['duet_setting'], val['enroll_year'], val['enterprise_verify_reason'], val['favoriting_count'], val['fb_expire_time'], val['follow_status'], val['follower_count'], val['follower_status'], val['following_count'], val['gender'], 
     
@@ -111,7 +112,7 @@ def monitor():
   sendData = {"err": 0, "total": info["gainTotal"]}
   return json.dumps(sendData)
 
-parameters = pika.URLParameters('amqp://admin:admin@127.0.0.1:5672/')
+parameters = pika.URLParameters('amqp://admin:admin@39.105.78.11:5672/')
 mqConnection = pika.BlockingConnection(parameters)
 
 unCheckChannel = mqConnection.channel()
