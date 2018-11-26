@@ -120,7 +120,7 @@ def callback(ch, method, properties, body):
   # time.sleep(1)
   
   # 接收到的数据
-  val = json.loads(body)
+  val = json.loads(body.decode('utf-8'))
   saveUser(val)
 
   ch.basic_ack(delivery_tag = method.delivery_tag)  #发送ack消息
