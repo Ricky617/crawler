@@ -41,7 +41,7 @@ def saveUser(val):
   # 拼接SQL语句一次性插入
   with connection.cursor() as cursor:
     sqlStr = 'INSERT IGNORE INTO `1` VALUES '
-    # print(val)
+    print(val)
     if 'uid' not in val:
       return
     if 'custom_verify' not in val:
@@ -59,6 +59,7 @@ def saveUser(val):
     val['nickname'] = val['nickname'].replace("'", "’")
     val['nickname'] = val['nickname'].replace("\\", '\\\\')
     val['signature'] = val['signature'].replace("'", "’")
+    val['province'] = val['province'].replace("'", "\\'")
     val['college_name'] = val['college_name'].replace("'", "’")
     val['signature'] = val['signature'].replace('\n', '\\n')
     val['signature'] = val['signature'].replace("(", "\(")
@@ -107,7 +108,7 @@ def monitor():
   sendData = {"err": 0, "total": info["gainTotal"]}
   return json.dumps(sendData)
 
-parameters = pika.URLParameters('amqp://admin:admin@39.105.78.11:5672/')
+parameters = pika.URLParameters('amqp://admin:admin@127.0.0.1:5672/')
 mqConnection = pika.BlockingConnection(parameters)
 
 unCheckChannel = mqConnection.channel()
