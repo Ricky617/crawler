@@ -57,6 +57,7 @@ def saveUser(val):
     val['nickname'] = val['nickname'].replace("'", "’")
     val['nickname'] = val['nickname'].replace("\\", '\\\\')
     val['signature'] = val['signature'].replace("'", "’")
+    val['college_name'] = val['college_name'].replace("'", "’")
     val['signature'] = val['signature'].replace('\n', '\\n')
     val['signature'] = val['signature'].replace("(", "\(")
     val['signature'] = val['signature'].replace(")", "\)")
@@ -91,7 +92,7 @@ def saveUser(val):
     val['with_commerce_entry'], val['with_commerce_newbie_task'], val['with_dou_entry'], val['with_douplus_entry'], val['with_fusion_shop_entry'], val['with_item_commerce_entry'], val['with_new_goods'], val['with_shop_entry'])
 
     # 插入数据库
-    # logging.info(sqlStr)
+    logging.info(sqlStr)
     # sqlStr = sqlStr.replace('False', '0')
     # sqlStr = sqlStr.replace('True', '1')
     # print(sqlStr)
@@ -104,7 +105,7 @@ def monitor():
   sendData = {"err": 0, "total": info["gainTotal"]}
   return json.dumps(sendData)
 
-parameters = pika.URLParameters('amqp://admin:admin@127.0.0.1:5672/')
+parameters = pika.URLParameters('amqp://admin:admin@39.105.78.11:5672/')
 mqConnection = pika.BlockingConnection(parameters)
 
 unCheckChannel = mqConnection.channel()
