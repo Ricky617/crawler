@@ -40,7 +40,7 @@ def saveUser(val):
   # logging.info(userList)
   # 拼接SQL语句一次性插入
   with connection.cursor() as cursor:
-    sqlStr = 'INSERT IGNORE INTO `1` VALUES '
+    sqlStr = 'INSERT IGNORE INTO `2` VALUES '
     # print(val)
     if 'uid' not in val:
       return
@@ -76,27 +76,18 @@ def saveUser(val):
     if 'school_name' not in val:
       val['school_name'] = ''
     # 如果最是最后一条则拼接以分号结尾的SQL语句
-    sqlStr += "(%s, %d, '%s', %d, '%s', '%s', '%s',  %d, %d, %d, '%s', '%s', '%s', %d, %d,  %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d,  %d, %d, %d, %d, %d, %d, %d, %d, %d, %d,  %d, %d, %d, %d, %d, '%s', '%s', %d, %d, %d,  %d, '%s', %d, %d, %d, %d, '%s', %d, %d, '%s',  %d, %d, '%s', %d, %d, '%s', %d, '%s', '%s', %d,  %d, '%s', %d, %d, %d, '%s', %d, %d, '%s', %d,  %d, %d, %d, %d, %d, %d, '%s', %d, %d, %d,   %d, %d, %d, '%s', '%s', %d, '%s', '%s', '%s', '%s',  %d, %d, %d, %d, %d, %d, %d, %d );" % (val['uid'], val['authority_status'], val['avatar_uri'], val['aweme_count'], val['birthday'], val['city'], val['college_name'],
-
-    val['commerce_user_level'], val['constellation'], val['country'], val['custom_verify'], val['district'], val['dongtai_count'], val['download_setting'], 
-
-    val['duet_setting'], val['enroll_year'], val['enterprise_verify_reason'], val['favoriting_count'], val['fb_expire_time'], val['follow_status'], val['follower_count'], val['follower_status'], val['following_count'], val['gender'], 
-    
-    val['has_activity_medal'], val['has_email'], val['has_insights'], val['has_orders'], val['hide_location'], val['hide_search'], val['is_ad_fake'], val['is_binded_weibo'], val['is_block'], val['is_discipline_member'], 
-    
-    val['is_effect_artist'], val['is_flowcard_member'], val['is_gov_media_vip'], val['is_phone_binded'], val['is_verified'], val['iso_country_code'], val['language'], val['live_agreement'], val['live_agreement_time'], val['live_commerce'], 
-    
-    val['live_verify'], val['location'], val['login_platform'], val['mplatform_followers_count'], val['need_recommend'], val['neiguang_shield'], val['nickname'], val['prevent_download'], val['profile_tab_type'], val['province'], 
-    
-    val['react_setting'], val['realname_verify_status'], val['recommend_reason_relation'], val['reflow_page_gid'], val['reflow_page_uid'], val['region'], val['room_id'], val['school_name'], val['school_poi_id'], val['school_type'], 
-    
-    val['secret'], val['share_qrcode_uri'], val['shield_comment_notice'], val['shield_digg_notice'], val['shield_follow_notice'], val['short_id'], val['show_gender_strategy'], val['show_image_bubble'], val['signature'], val['special_lock'], 
-    
-    val['star_use_new_download'], val['status'], val['story_count'], val['story_open'], val['sync_to_toutiao'], val['total_favorited'], val['unique_id'], val['unique_id_modify_time'], val['user_canceled'], val['user_mode'], 
-    
-    val['user_period'], val['user_rate'], val['verification_type'], val['verify_info'], val['video_icon_virtual_URI'], val['watch_status'], val['weibo_name'], val['weibo_schema'], val['weibo_url'], val['weibo_verify'], 
-    
-    val['with_commerce_entry'], val['with_commerce_newbie_task'], val['with_dou_entry'], val['with_douplus_entry'], val['with_fusion_shop_entry'], val['with_item_commerce_entry'], val['with_new_goods'], val['with_shop_entry'])
+    sqlStr += "(%s, %d, '%s', %d, '%s', '%s', '%s', %d, %d, '%s',      '%s', '%s', %d, '%s', '%s', %d, %d, %d, %d,    %d, %d, %d, %d, %d, %d, %d, %d, %d, '%s',      '%s', %d, %d, %d, '%s', %d,  %d, %d, '%s', %d,      %d, '%s', %d, %d, '%s', %d,  %d, '%s', %d, '%s',       '%s', %d, %d, '%s', %d,  %d, %d, '%s', %d, '%s',       %d, %d, %d, %d,  %d, '%s', %d, %d, %d, %d,       '%s', '%s', '%s', '%s',  %d, %d, %d);" % (
+      val['uid'], val['authority_status'], val['avatar_uri'], val['aweme_count'], val['birthday'], val['city'], val['college_name'], val['commerce_user_level'], val['constellation'], val['country'], 
+      val['custom_verify'], val['district'], val['dongtai_count'], val['enroll_year'], val['enterprise_verify_reason'], val['favoriting_count'], val['follower_count'], val['following_count'], val['gender'], 
+      val['has_orders'], val['hide_location'], val['hide_search'], val['is_ad_fake'], val['is_binded_weibo'], val['is_discipline_member'], val['is_flowcard_member'], val['is_gov_media_vip'], val['is_verified'], val['iso_country_code'], 
+      val['language'], val['live_agreement'], val['live_commerce'], 
+      val['live_verify'], val['location'], val['mplatform_followers_count'], val['need_recommend'], val['neiguang_shield'], val['nickname'], val['prevent_download'], val['profile_tab_type'], val['province'], 
+      
+      val['react_setting'], val['realname_verify_status'], val['recommend_reason_relation'], val['reflow_page_gid'], val['reflow_page_uid'], val['region'], val['room_id'], val['school_name'], val['school_poi_id'], val['school_type'], 
+      val['secret'], val['share_qrcode_uri'], val['shield_comment_notice'], val['shield_digg_notice'], val['shield_follow_notice'], val['short_id'], val['show_gender_strategy'], val['signature'], val['special_lock'], 
+      val['star_use_new_download'], val['status'], val['story_count'], val['total_favorited'], val['unique_id'], val['unique_id_modify_time'], val['user_canceled'],
+      val['user_rate'], val['verification_type'], val['verify_info'], val['weibo_name'], val['weibo_schema'], val['weibo_url'],
+      val['with_commerce_entry'], val['with_commerce_newbie_task'], val['with_item_commerce_entry'])
 
     # 插入数据库
     # logging.info(sqlStr)
@@ -117,7 +108,6 @@ mqConnection = pika.BlockingConnection(parameters)
 
 unCheckChannel = mqConnection.channel()
 unCheckChannel.basic_qos(prefetch_size=0, prefetch_count=20, all_channels=True) # 公平消费
-unCheckChannel.queue_declare(queue='douyin-uncheck')
 
 def callback(ch, method, properties, body):
   '''回调函数,处理从rabbitmq中取出的消息'''
@@ -142,7 +132,7 @@ if __name__ == '__main__':
   # conn.commit()
   # conn.close()
   
-  unCheckChannel.basic_consume(callback, queue='check-id-10000000000', no_ack=False)
+  unCheckChannel.basic_consume(callback, queue='check-id-20000000000', no_ack=False)
   print(' [*] Waiting for messages. To exit press CTRL+C')
   unCheckChannel.start_consuming()    #开始监听 接受消息
   conn.close()
