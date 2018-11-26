@@ -50,6 +50,8 @@ def saveUser(val):
       val['enterprise_verify_reason'] = ''
     if 'signature' not in val:
       val['signature'] = ''
+    if 'college_name' not in val:
+      val['college_name'] = ''
     # 去除非法字符
     val['nickname'] = val['nickname'].replace('\n', '\\n')
     val['custom_verify'] = val['custom_verify'].replace("'", "’")
