@@ -41,7 +41,7 @@ def saveUser(val):
   # 拼接SQL语句一次性插入
   with connection.cursor() as cursor:
     sqlStr = 'INSERT IGNORE INTO `1` VALUES '
-    print(val)
+    # print(val)
     if 'uid' not in val:
       return
     if 'custom_verify' not in val:
@@ -60,6 +60,9 @@ def saveUser(val):
     val['nickname'] = val['nickname'].replace("\\", '\\\\')
     val['signature'] = val['signature'].replace("'", "’")
     val['province'] = val['province'].replace("'", "\\'")
+    val['location'] = val['location'].replace("'", "\\'")
+    val['district'] = val['district'].replace("'", "\\'")
+    val['city'] = val['city'].replace("'", "\\'")
     val['college_name'] = val['college_name'].replace("'", "’")
     val['signature'] = val['signature'].replace('\n', '\\n')
     val['signature'] = val['signature'].replace("(", "\(")
@@ -95,7 +98,7 @@ def saveUser(val):
     val['with_commerce_entry'], val['with_commerce_newbie_task'], val['with_dou_entry'], val['with_douplus_entry'], val['with_fusion_shop_entry'], val['with_item_commerce_entry'], val['with_new_goods'], val['with_shop_entry'])
 
     # 插入数据库
-    logging.info(sqlStr)
+    # logging.info(sqlStr)
     # sqlStr = sqlStr.replace('False', '0')
     # sqlStr = sqlStr.replace('True', '1')
     # print(sqlStr)
