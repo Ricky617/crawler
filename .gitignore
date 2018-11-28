@@ -1,3 +1,4 @@
 *.exe
 *.log
 config.json
+client/main
