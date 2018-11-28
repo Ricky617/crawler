@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -13,6 +14,9 @@ import (
 	_ "github.com/denisenkom/go-mssqldb"
 	"github.com/streadway/amqp"
 )
+
+// Config 配置项
+var Config map[string]string
 
 // 总共获取到的用户数量
 var follosUserNumber = 0
@@ -26,6 +30,8 @@ var cacheDevice = ""
 // 消息队列
 var mqConn *amqp.Connection
 var mqChannel *amqp.Channel
+var localMqConn *amqp.Connection
+var localMqChannel *amqp.Channel
 
 // 错误次数
 var errorNumber = 1
@@ -154,10 +160,9 @@ func getDevice() string {
 
 // getSign 获取签名信息
 func getSign(token string, device string, userID string) (string, error) {
-	url := "http://127.0.0.1:8100/"
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()+3600000000000, 10)
 	query := "_rticket=1542368731370032509&ac=wifi&aid=1128&app_name=aweme&channel=360&count=49&device_brand=OnePlus&dpi=420&language=zh&manifest_version_code=169&max_time=" + timestamp[:10] + "&os_api=27&os_version=8.1.0&resolution=1080%2A1920&retry_type=no_retry&ssmix=a&update_version_code=1692&user_id=" + userID + "&uuid=615720636968612&version_code=169&version_name=1.6.9" + device
-	res, err := post(url, query)
+	res, err := post(Config["signServer"], query)
 	if err != nil {
 		return "", err
 	}
@@ -228,7 +233,7 @@ func getRandomUser(followings map[string]interface{}) {
 var msg amqp.Delivery
 
 func getWork() string {
-	queue, err := mqChannel.QueueDeclare("douyin-unknow-id-20000000000", false, false, false, false, nil)
+	queue, err := mqChannel.QueueDeclare(Config["sourceQueue"], false, false, false, false, nil)
 	if err != nil {
 		log.Fatalf("queue.declare source: %s", err)
 	}
@@ -269,18 +274,24 @@ func checkTokenTimeout() {
 func rabbit() {
 	var err error
 	// 注册消息队列
-	mqConn, err = amqp.Dial("amqp://admin:admin@39.105.78.11:5672/")
+	mqConn, err := amqp.Dial(Config["sourceMQ"])
 	if err != nil {
 		log.Fatal("Open connection failed:", err.Error())
 	}
-
+	localMqConn, err := amqp.Dial(Config["targetMQ"])
+	if err != nil {
+		log.Fatal("Open connection failed:", err.Error())
+	}
 	mqChannel, err = mqConn.Channel()
 	if err != nil {
 		log.Fatal("Failed to open a channel:", err.Error())
 	}
-
-	_, err = mqChannel.QueueDeclare(
-		"check-id-20000000000",
+	localMqChannel, err = localMqConn.Channel()
+	if err != nil {
+		log.Fatal("Failed to open a channel:", err.Error())
+	}
+	_, err = localMqChannel.QueueDeclare(
+		Config["targetQueue"],
 		false,
 		false,
 		false,
@@ -293,9 +304,9 @@ func rabbit() {
 }
 
 func sendMessage(message string) {
-	err := mqChannel.Publish(
+	err := localMqChannel.Publish(
 		"",
-		"check-id-20000000000",
+		Config["targetQueue"],
 		false,
 		false,
 		amqp.Publishing{
@@ -313,6 +324,16 @@ func sendMessage(message string) {
 
 // 程序主入口
 func main() {
+	// 加载配置项
+	configFile, err := ioutil.ReadFile("config.json")
+	if err != nil {
+		fmt.Print(err)
+	}
+	if err := json.Unmarshal(configFile, &Config); err != nil {
+		log.Println("配置文件格式错误!")
+		log.Println(err.Error())
+	}
+	fmt.Println(Config["sourceMQ"])
 	rabbit()
 	for true {
 		checkTokenTimeout()
