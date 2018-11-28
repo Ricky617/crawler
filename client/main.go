@@ -12,6 +12,7 @@ import (
 	"time"
 
 	_ "github.com/denisenkom/go-mssqldb"
+	"github.com/gosuri/uilive"
 	"github.com/streadway/amqp"
 )
 
@@ -19,7 +20,7 @@ import (
 var Config map[string]string
 
 // 总共获取到的用户数量
-var follosUserNumber = 0
+var getNumber = 0
 
 // 缓存时间
 var proxyCacheTime int64 = 1041218962781626500
@@ -257,13 +258,13 @@ func checkTokenTimeout() {
 
 	// 如果超过了100秒重新获取设备信息和Token
 	if timestamp > cacheTime+2400000000000 {
-		log.Println("get new device and token")
-		t1 := time.Now()
+		// log.Println("get new device and token")
+		// t1 := time.Now()
 		// 获取个设备信息才好进行下面操作啊
 		device = getDevice()
 		// token当然也是必须的啊
 		token = getToken()
-		log.Println("get new device and token use time: ", time.Now().Sub(t1))
+		// log.Println("get new device and token use time: ", time.Now().Sub(t1))
 		// 刷新缓存
 		cacheTime = timestamp
 		cacheDevice = device
@@ -316,7 +317,7 @@ func sendMessage(message string) {
 	if err != nil {
 		log.Fatal("Failed to publish a message:", err.Error())
 	} else {
-		follosUserNumber = follosUserNumber + 1
+		getNumber = getNumber + 1
 		// fmt.Fprintf(os.Stdout, "发送成功数量")
 		msg.Ack(false)
 	}
@@ -324,6 +325,7 @@ func sendMessage(message string) {
 
 // 程序主入口
 func main() {
+	writer := uilive.New()
 	// 加载配置项
 	configFile, err := ioutil.ReadFile("config.json")
 	if err != nil {
@@ -333,10 +335,22 @@ func main() {
 		log.Println("配置文件格式错误!")
 		log.Println(err.Error())
 	}
-	fmt.Println(Config["sourceMQ"])
+	fmt.Println("配置项加载成功!")
 	rabbit()
+	writer.Start()
 	for true {
+		fmt.Fprintf(writer, "用户信息获取数量: %d 条\n", getNumber)
 		checkTokenTimeout()
 		getUserFavoriteList()
 	}
+	writer.Stop() // flush and stop rendering
+	// start listening for updates and render
+
+	// for i := 0; i <= 100; i++ {
+	// 	fmt.Fprintf(writer, "Downloading.. (%d/%d) GB\n", i, 100)
+	// 	time.Sleep(time.Millisecond * 5)
+	// }
+
+	// fmt.Fprintln(writer, "Finished: Downloaded 100GB")
+
 }
