@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/denisenkom/go-mssqldb"
@@ -17,13 +18,12 @@ import (
 )
 
 // Config 配置项
-var Config map[string]string
+var Config map[string]interface{}
 
 // 总共获取到的用户数量
 var getNumber = 0
 
 // 缓存时间
-var proxyCacheTime int64 = 1041218962781626500
 var cacheTime int64 = 1041218962781626500
 var cacheToken = ""
 var cacheDevice = ""
@@ -36,6 +36,8 @@ var localMqChannel *amqp.Channel
 
 // 错误次数
 var errorNumber = 1
+
+var wg sync.WaitGroup
 
 // Get请求数据
 func get(requestURL string) ([]byte, error) {
@@ -109,7 +111,6 @@ func getToken() string {
 func errorHandling() {
 	// 重新获取Token
 	cacheTime = 0
-	proxyCacheTime = 0
 	if errorNumber > 5 {
 		log.Println("发生错误次数过多,休息一会, 10分钟后重试")
 		time.Sleep(time.Second * 600)
@@ -163,7 +164,7 @@ func getDevice() string {
 func getSign(token string, device string, userID string) (string, error) {
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()+3600000000000, 10)
 	query := "_rticket=1542368731370032509&ac=wifi&aid=1128&app_name=aweme&channel=360&count=49&device_brand=OnePlus&dpi=420&language=zh&manifest_version_code=169&max_time=" + timestamp[:10] + "&os_api=27&os_version=8.1.0&resolution=1080%2A1920&retry_type=no_retry&ssmix=a&update_version_code=1692&user_id=" + userID + "&uuid=615720636968612&version_code=169&version_name=1.6.9" + device
-	res, err := post(Config["signServer"], query)
+	res, err := post(Config["signServer"].(string), query)
 	if err != nil {
 		return "", err
 	}
@@ -184,17 +185,18 @@ func getQuery(userID string) (string, error) {
 	return url.PathEscape(query), nil
 }
 
-func getUserFavoriteList() {
-	// 这个一看就知道是抖音官方接口啊
-	getURL := "http://api.amemv.com/aweme/v1/user/?"
-	query, err := getQuery(getWork())
+// 获取用户数据
+func getUserData(queue amqp.Queue) {
+	defer wg.Done()
+	// 生成请求参数
+	query, err := getQuery(getWork(queue))
 	if err != nil {
 		log.Println("请求参数生成失败!")
 		log.Println(err)
 		errorHandling()
 		return
 	}
-	res, err := get(getURL + query)
+	res, err := get("http://api.amemv.com/aweme/v1/user/?" + query)
 	if err != nil {
 		log.Println("获取用户数据失败!")
 		log.Println(err)
@@ -211,8 +213,10 @@ func getUserFavoriteList() {
 		if int(statusCode) == 0 {
 			// 清洗数据
 			userData := resData["user"].(map[string]interface{})
-			// println(userData)
-			getRandomUser(userData)
+
+			// 将对象转为字符串发送
+			text, _ := json.Marshal(userData)
+			sendMessage(string(text))
 		} else {
 			log.Println(follow)
 			errorHandling()
@@ -223,22 +227,11 @@ func getUserFavoriteList() {
 	}
 }
 
-func getRandomUser(followings map[string]interface{}) {
-	// println(followings)
-	text, _ := json.Marshal(followings)
-	// println(string(text))
-	// // println(string(text))
-	sendMessage(string(text))
-}
-
 var msg amqp.Delivery
 
-func getWork() string {
-	queue, err := mqChannel.QueueDeclare(Config["sourceQueue"], false, false, false, false, nil)
-	if err != nil {
-		log.Fatalf("queue.declare source: %s", err)
-	}
-	msg, _, err = mqChannel.Get(
+func getWork(queue amqp.Queue) string {
+	// 从队列获取消息
+	msg, _, err := mqChannel.Get(
 		queue.Name, // queue name
 		false,      // auto-ack
 	)
@@ -272,14 +265,15 @@ func checkTokenTimeout() {
 	}
 }
 
+// 注册消息队列
 func rabbit() {
 	var err error
 	// 注册消息队列
-	mqConn, err := amqp.Dial(Config["sourceMQ"])
+	mqConn, err := amqp.Dial(Config["sourceMQ"].(string))
 	if err != nil {
 		log.Fatal("Open connection failed:", err.Error())
 	}
-	localMqConn, err := amqp.Dial(Config["targetMQ"])
+	localMqConn, err := amqp.Dial(Config["targetMQ"].(string))
 	if err != nil {
 		log.Fatal("Open connection failed:", err.Error())
 	}
@@ -292,7 +286,7 @@ func rabbit() {
 		log.Fatal("Failed to open a channel:", err.Error())
 	}
 	_, err = localMqChannel.QueueDeclare(
-		Config["targetQueue"],
+		Config["targetQueue"].(string),
 		false,
 		false,
 		false,
@@ -304,16 +298,20 @@ func rabbit() {
 	}
 }
 
+// 发送信息
 func sendMessage(message string) {
+	// 发布消息
 	err := localMqChannel.Publish(
 		"",
-		Config["targetQueue"],
+		Config["targetQueue"].(string),
 		false,
 		false,
 		amqp.Publishing{
 			ContentType: "text/plain",
 			Body:        []byte(message),
 		})
+
+	// 错误处理
 	if err != nil {
 		log.Fatal("Failed to publish a message:", err.Error())
 	} else {
@@ -325,7 +323,6 @@ func sendMessage(message string) {
 
 // 程序主入口
 func main() {
-	writer := uilive.New()
 	// 加载配置项
 	configFile, err := ioutil.ReadFile("config.json")
 	if err != nil {
@@ -336,21 +333,26 @@ func main() {
 		log.Println(err.Error())
 	}
 	fmt.Println("配置项加载成功!")
+
+	// 注册消息队列
 	rabbit()
+	// 声明消息队列
+	queue, err := mqChannel.QueueDeclare(Config["sourceQueue"].(string), false, false, false, false, nil)
+	if err != nil {
+		log.Fatalf("queue.declare source: %s", err)
+	}
+
+	writer := uilive.New()
 	writer.Start()
 	for true {
 		fmt.Fprintf(writer, "用户信息获取数量: %d 条\n", getNumber)
 		checkTokenTimeout()
-		getUserFavoriteList()
+		for key := 0; key < int(Config["threadNum"].(float64)); key++ {
+			wg.Add(1)
+			time.Sleep(time.Millisecond * 10)
+			getUserData(queue)
+		}
+		wg.Wait()
 	}
-	writer.Stop() // flush and stop rendering
-	// start listening for updates and render
-
-	// for i := 0; i <= 100; i++ {
-	// 	fmt.Fprintf(writer, "Downloading.. (%d/%d) GB\n", i, 100)
-	// 	time.Sleep(time.Millisecond * 5)
-	// }
-
-	// fmt.Fprintln(writer, "Finished: Downloaded 100GB")
-
+	writer.Stop()
 }
