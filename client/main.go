@@ -188,8 +188,8 @@ func getQuery(userID string) (string, error) {
 // 获取用户数据
 func getUserData(queue amqp.Queue) {
 	defer wg.Done()
-	// 生成请求参数
-	query, err := getQuery(getWork(queue))
+	userID, msg := getWork(queue)
+	query, err := getQuery(userID)
 	if err != nil {
 		log.Println("请求参数生成失败!")
 		log.Println(err)
@@ -216,7 +216,7 @@ func getUserData(queue amqp.Queue) {
 
 			// 将对象转为字符串发送
 			text, _ := json.Marshal(userData)
-			sendMessage(string(text))
+			sendMessage(string(text), msg)
 		} else {
 			log.Println(follow)
 			errorHandling()
@@ -227,9 +227,8 @@ func getUserData(queue amqp.Queue) {
 	}
 }
 
-var msg amqp.Delivery
-
-func getWork(queue amqp.Queue) string {
+func getWork(queue amqp.Queue) (string, amqp.Delivery) {
+	var msg amqp.Delivery
 	// 从队列获取消息
 	msg, _, err := mqChannel.Get(
 		queue.Name, // queue name
@@ -238,7 +237,7 @@ func getWork(queue amqp.Queue) string {
 	if nil != err {
 		log.Fatalf("basic.consume source: %s", err)
 	}
-	return string(msg.Body)
+	return string(msg.Body), msg
 }
 
 // 检查是否需要更新Token
@@ -299,7 +298,7 @@ func rabbit() {
 }
 
 // 发送信息
-func sendMessage(message string) {
+func sendMessage(message string, msg amqp.Delivery) {
 	// 发布消息
 	err := localMqChannel.Publish(
 		"",
@@ -350,7 +349,7 @@ func main() {
 		for key := 0; key < int(Config["threadNum"].(float64)); key++ {
 			wg.Add(1)
 			time.Sleep(time.Millisecond * 10)
-			getUserData(queue)
+			go getUserData(queue)
 		}
 		wg.Wait()
 	}

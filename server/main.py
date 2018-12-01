@@ -7,6 +7,7 @@ import time
 import pika
 import time
 import logging
+import threading
 import pymysql.cursors
 from flask import Flask, request
 
@@ -14,8 +15,6 @@ app = Flask(__name__)
 
 # 加载配置文件
 config = json.load(open("config.json", encoding='utf-8'))
-
-connection = pymysql.connect(host=config["dataBase"]["server"], port=config["dataBase"]["port"], user=config["dataBase"]["user"], password=config["dataBase"]["password"], db=config["dataBase"]["name"], charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor)
 
 # 日志文件存储
 # if not os.path.exists("./log/"):
@@ -35,12 +34,14 @@ info = {
   'clientList': {}
 }
 
-def saveUser(val):
+def saveUser(val, ch, method):
+  # print(val['uid'])
+  connection = pymysql.connect(host=config["dataBase"]["server"], port=config["dataBase"]["port"], user=config["dataBase"]["user"], password=config["dataBase"]["password"], db=config["dataBase"]["name"], charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor)
   # print('save ' + str(len(userList)) +' user info!')
   # logging.info(userList)
   # 拼接SQL语句一次性插入
   with connection.cursor() as cursor:
-    sqlStr = 'INSERT IGNORE INTO `3` VALUES '
+    sqlStr = 'INSERT IGNORE INTO `8` VALUES '
     # print(val)
     if 'uid' not in val:
       return
@@ -75,6 +76,7 @@ def saveUser(val):
       val['enroll_year'] = ''
     if 'school_name' not in val:
       val['school_name'] = ''
+    val['school_name'] = val['school_name'].replace("'", "\\'")
     # 如果最是最后一条则拼接以分号结尾的SQL语句
     sqlStr += "(%s, %d, '%s', %d, '%s', '%s', '%s', %d, %d, '%s',      '%s', '%s', %d, '%s', '%s', %d, %d, %d, %d,    %d, %d, %d, %d, %d, %d, %d, %d, %d, '%s',      '%s', %d, %d, %d, '%s', %d,  %d, %d, '%s', %d,      %d, '%s', %d, %d, '%s', %d,  %d, '%s', %d, '%s',       '%s', %d, %d, '%s', %d,  %d, %d, '%s', %d, '%s',       %d, %d, %d, %d,  %d, '%s', %d, %d, %d, %d,       '%s', '%s', '%s', '%s',  %d, %d, %d);" % (
       val['uid'], val['authority_status'], val['avatar_uri'], val['aweme_count'], val['birthday'], val['city'], val['college_name'], val['commerce_user_level'], val['constellation'], val['country'], 
@@ -95,15 +97,17 @@ def saveUser(val):
     # sqlStr = sqlStr.replace('True', '1')
     # print(sqlStr)
     cursor.execute(sqlStr)
+    cursor.close()
     # 没有设置默认自动提交，需要主动提交，以保存所执行的语句
     connection.commit()
+    ch.basic_ack(delivery_tag = method.delivery_tag)  #发送ack消息
 
 @app.route('/monitor', methods=['GET'])
 def monitor():
   sendData = {"err": 0, "total": info["gainTotal"]}
   return json.dumps(sendData)
 
-parameters = pika.URLParameters('amqp://admin:admin@127.0.0.1:5672/')
+parameters = pika.URLParameters('amqp://admin:admin@154.8.196.163:5672/')
 mqConnection = pika.BlockingConnection(parameters)
 
 unCheckChannel = mqConnection.channel()
@@ -116,26 +120,18 @@ def callback(ch, method, properties, body):
   
   # 接收到的数据
   val = json.loads(body.decode('utf-8'))
-  saveUser(val)
-
-  ch.basic_ack(delivery_tag = method.delivery_tag)  #发送ack消息
+  # saveUser(val)
+  t=threading.Thread(target=saveUser, args=(val, ch, method))
+  t.start()
+  # ch.basic_ack(delivery_tag = method.delivery_tag)  #发送ack消息
 
   
 
 if __name__ == '__main__':
-  # 程序启动时向数据库查询数据总条数
-  # conn = pyodbc.connect(r'DRIVER={SQL Server Native Client 11.0};SERVER=localhost;DATABASE=Douyin;UID=PUGE;PWD=mmit7750')
-  # c = conn.cursor()
-  # startCount = c.execute('SELECT COUNT(*) from DouYin.dbo.SIMPLE').fetchone()
-  # print('Database data volume: ' + str(startCount[0]))
-  # info["gainTotal"] = startCount[0]
-  # conn.commit()
-  # conn.close()
   
-  unCheckChannel.basic_consume(callback, queue='check-id-30000000000', no_ack=False)
+  unCheckChannel.basic_consume(callback, queue='check-id-80000000000', no_ack=False)
   print(' [*] Waiting for messages. To exit press CTRL+C')
   unCheckChannel.start_consuming()    #开始监听 接受消息
-  conn.close()
 
   # 启动服务器
   # app.run()
