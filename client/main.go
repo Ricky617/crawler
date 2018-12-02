@@ -286,7 +286,7 @@ func rabbit() {
 	}
 	_, err = localMqChannel.QueueDeclare(
 		Config["targetQueue"].(string),
-		false,
+		true,
 		false,
 		false,
 		false,
@@ -336,7 +336,7 @@ func main() {
 	// 注册消息队列
 	rabbit()
 	// 声明消息队列
-	queue, err := mqChannel.QueueDeclare(Config["sourceQueue"].(string), false, false, false, false, nil)
+	queue, err := mqChannel.QueueDeclare(Config["sourceQueue"].(string), true, false, false, false, nil)
 	if err != nil {
 		log.Fatalf("queue.declare source: %s", err)
 	}
