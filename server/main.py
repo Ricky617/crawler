@@ -43,6 +43,9 @@ def clearData (val):
     return ""
   if 'custom_verify' not in val:
     val['custom_verify'] = ''
+  if 'weibo_name' not in val:
+    val['weibo_name'] = ''
+  # print(val['total_favorited'])
   if 'enterprise_verify_reason' not in val:
     val['enterprise_verify_reason'] = ''
   if 'signature' not in val:
@@ -113,7 +116,7 @@ def monitor():
   sendData = {"err": 0, "total": info["gainTotal"]}
   return json.dumps(sendData)
 
-parameters = pika.URLParameters('amqp://admin:admin@127.0.0.1:5672/')
+parameters = pika.URLParameters(config["dataBase"]["mqServer"])
 mqConnection = pika.BlockingConnection(parameters)
 
 unCheckChannel = mqConnection.channel()
