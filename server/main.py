@@ -141,7 +141,7 @@ def callback(ch, method, properties, body):
 
 if __name__ == '__main__':
   
-  unCheckChannel.basic_consume(callback, queue='check-id')
+  unCheckChannel.basic_consume(callback, queue=config["dataBase"]["queue"])
   print(' [*] Waiting for messages. To exit press CTRL+C')
   unCheckChannel.start_consuming()    #开始监听 接受消息
 
