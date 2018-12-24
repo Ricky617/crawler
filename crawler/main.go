@@ -14,11 +14,21 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/gosuri/uilive"
 	"github.com/streadway/amqp"
 )
 
 // DB 数据库连接池
 var DB *sql.DB
+
+// 总共获取到的用户数量
+var getNumber = 0
+
+// 延迟
+var dbDelay time.Duration
+
+// 插入延迟
+var insertDelay time.Duration
 
 // Config 配置项
 var Config map[string]interface{}
@@ -27,7 +37,6 @@ var Config map[string]interface{}
 var mqConn *amqp.Connection
 var mqChannel *amqp.Channel
 var localMqConn *amqp.Connection
-var localMqChannel *amqp.Channel
 
 // 缓存时间
 var proxyCacheTime int64 = 1041218962781626500
@@ -108,6 +117,7 @@ func errorHandling() {
 
 // 注意方法名大写，就是public
 func initDB() {
+	t1 := time.Now()
 	//构建连接："用户名:密码@tcp(IP:端口)/数据库?charset=utf8"
 	path := strings.Join([]string{Config["dbUserName"].(string), ":", Config["dbPassword"].(string), "@tcp(", Config["dbIP"].(string), ":", Config["dbPort"].(string), ")/", Config["dbName"].(string), "?charset=utf8"}, "")
 
@@ -122,7 +132,7 @@ func initDB() {
 		fmt.Println("opon database fail")
 		return
 	}
-	fmt.Println("connnect success")
+	fmt.Println("connnect success:", time.Now().Sub(t1))
 }
 
 // 获取新的设备信息:有效期60分钟永久
@@ -191,13 +201,13 @@ func checkTokenTimeout() {
 
 	// 如果超过了100秒重新获取设备信息和Token
 	if timestamp > cacheTime+2400000000000 {
-		log.Println("get new device and token")
-		t1 := time.Now()
+		// log.Println("get new device and token")
+		// t1 := time.Now()
 		// 获取个设备信息才好进行下面操作啊
 		device = getDevice()
 		// token当然也是必须的啊
 		token = getToken()
-		log.Println("get new device and token use time: ", time.Now().Sub(t1))
+		// log.Println("get new device and token use time: ", time.Now().Sub(t1))
 		// 刷新缓存
 		cacheTime = timestamp
 		cacheDevice = device
@@ -210,7 +220,7 @@ func getWork(queue amqp.Queue) amqp.Delivery {
 	// 从队列获取消息
 	msg, _, err := mqChannel.Get(
 		queue.Name, // queue name
-		false,      // auto-ack
+		true,       // auto-ack
 	)
 	if nil != err {
 		log.Fatalf("basic.consume source: %s", err)
@@ -247,7 +257,7 @@ func getQuery(userID string) (string, error) {
 // 发送信息
 func sendMessage(message string, queue string) {
 	// 发布消息
-	err := localMqChannel.Publish(
+	err := mqChannel.Publish(
 		"",
 		queue,
 		false,
@@ -260,15 +270,12 @@ func sendMessage(message string, queue string) {
 	// 错误处理
 	if err != nil {
 		log.Fatal("Failed to publish a message:", err.Error())
-	} else {
-		// getNumber = getNumber + 1
-		// fmt.Fprintf(os.Stdout, "发送成功数量")
-		// msg.Ack(false)
 	}
 }
 
 // 检查用户是否存在于数据库中
 func checkUserExist(userID string) bool {
+	t1 := time.Now()
 	var have bool
 	// fmt.Println(userID)
 	rows, err := DB.Query("select 1 from user where uid =" + userID + " limit 1;")
@@ -285,7 +292,7 @@ func checkUserExist(userID string) bool {
 		}
 		have = true
 	}
-
+	dbDelay = time.Now().Sub(t1)
 	return have
 }
 
@@ -299,9 +306,23 @@ func getRandomUser(followings []interface{}) {
 			// fmt.Println()
 			// log.Println(author["uid"].(string))
 			// log.Println(checkUserExist(author["uid"].(string)))
-			if !checkUserExist(author["uid"].(string)) {
-				sendMessage(author["uid"].(string), "uncheck-id")
-				sendMessage(author["uid"].(string), "douyin-unknow-id")
+			// 判断数据库中是否存在此用户
+			uid := author["uid"].(string)
+			if !checkUserExist(uid) {
+				// 增加
+				getNumber = getNumber + 1
+				// fmt.Println("检查")
+				// 如果不存在的话
+				sendMessage(uid, "uncheck-id")
+				sendMessage(uid, "douyin-unknow-id")
+				// 向数据库中插入数据
+				t1 := time.Now()
+				_, err := DB.Exec(`INSERT IGNORE INTO user  (uid) VALUES (` + uid + `)`)
+				if err != nil {
+					fmt.Printf("insert data error: %v\n", err)
+					return
+				}
+				insertDelay = time.Now().Sub(t1)
 			}
 		}
 	}
@@ -335,7 +356,7 @@ func getUserFavoriteList(userID string) {
 		resData := follow.(map[string]interface{})
 		// 待优化
 		if resData["max_time"] == nil {
-			// log.Println(follow)
+			log.Println(follow)
 			errorHandling()
 			return
 		}
@@ -357,9 +378,6 @@ func concurrency(queue amqp.Queue) {
 	defer wg.Done()
 	if msg.Body != nil {
 		getUserFavoriteList(string(msg.Body))
-		msg.Ack(false)
-	} else {
-		msg.Reject(false)
 	}
 }
 
@@ -371,20 +389,12 @@ func rabbit() {
 	if err != nil {
 		log.Fatal("Open connection failed:", err.Error())
 	}
-	localMqConn, err := amqp.Dial(Config["targetMQ"].(string))
-	if err != nil {
-		log.Fatal("Open connection failed:", err.Error())
-	}
 	mqChannel, err = mqConn.Channel()
 	if err != nil {
 		log.Fatal("Failed to open a channel:", err.Error())
 	}
-	localMqChannel, err = localMqConn.Channel()
-	if err != nil {
-		log.Fatal("Failed to open a channel:", err.Error())
-	}
-	_, err = localMqChannel.QueueDeclare(
-		Config["targetQueue"].(string),
+	_, err = mqChannel.QueueDeclare(
+		Config["sourceQueue"].(string),
 		true,
 		false,
 		false,
@@ -419,16 +429,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("queue.declare source: %s", err)
 	}
+	writer := uilive.New()
+	writer.Start()
 	// 干不完不准休息
 	for true {
 		// 检查代理IP和Token是否过期
 		checkTokenTimeout()
 		for key := 0; key < int(Config["threadNum"].(float64)); key++ {
+			time.Sleep(time.Millisecond * 10)
 			wg.Add(1)
 			// 并发执行任务
 			go concurrency(queue)
 		}
 		wg.Wait()
+		fmt.Fprintf(writer, "\n获取数量: %d 条\n查询延迟: %s\n插入延迟: %s", getNumber, dbDelay, insertDelay)
 	}
+	writer.Stop()
 	println("all over!")
 }

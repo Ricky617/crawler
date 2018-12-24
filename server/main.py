@@ -28,14 +28,16 @@ logging.basicConfig(
   # handlers=[logging.FileHandler('./log/'+ logFileName, 'w', 'utf-8')]
 )
 
+# 全局信息
 info = {
   'gainTotal': 0,
   'clientList': {}
 }
 
+# 建立数据库连接
 connection = pymysql.connect(host=config["dataBase"]["server"], port=config["dataBase"]["port"], user=config["dataBase"]["user"], password=config["dataBase"]["password"], db=config["dataBase"]["name"], charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor)
 
-
+# 清理数据
 def clearData (val):
   if val["nickname"] == "已重置":
     return ""
@@ -103,22 +105,18 @@ def saveUser(val, ch, method):
     # 没有设置默认自动提交，需要主动提交，以保存所执行的语句
     connection.commit()
     cursor.close()
-    # print('sd')
-    # connection.close()
-    
-  # except:
-  #   print('拒绝')
-  #   # 拒绝消息
-  #   ch.basic_recover(True)  #发送ack消息
 
+# 为前端提供Api
 @app.route('/monitor', methods=['GET'])
 def monitor():
   sendData = {"err": 0, "total": info["gainTotal"]}
   return json.dumps(sendData)
 
+# 注册rabbitmq
 parameters = pika.URLParameters(config["dataBase"]["mqServer"])
 mqConnection = pika.BlockingConnection(parameters)
 
+# 注册没有检查的队列
 unCheckChannel = mqConnection.channel()
 unCheckChannel.basic_qos(prefetch_size=0, prefetch_count=100, all_channels=True) # 公平消费
 
@@ -140,7 +138,7 @@ def callback(ch, method, properties, body):
   
 
 if __name__ == '__main__':
-  
+  # 监听Rabbitmq队列
   unCheckChannel.basic_consume(callback, queue=config["dataBase"]["queue"])
   print(' [*] Waiting for messages. To exit press CTRL+C')
   unCheckChannel.start_consuming()    #开始监听 接受消息
