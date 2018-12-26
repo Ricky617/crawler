@@ -227,7 +227,6 @@ func getUserData(queue amqp.Queue) {
 }
 
 func getWork(queue amqp.Queue) (string, amqp.Delivery) {
-	var msg amqp.Delivery
 	// 从队列获取消息
 	msg, _, err := mqChannel.Get(
 		queue.Name, // queue name

@@ -24,9 +24,6 @@ var DB *sql.DB
 // 总共获取到的用户数量
 var getNumber = 0
 
-// 延迟
-var dbDelay time.Duration
-
 // 插入延迟
 var insertDelay time.Duration
 
@@ -36,7 +33,6 @@ var Config map[string]interface{}
 // 消息队列
 var mqConn *amqp.Connection
 var mqChannel *amqp.Channel
-var localMqConn *amqp.Connection
 
 // 缓存时间
 var proxyCacheTime int64 = 1041218962781626500
@@ -215,17 +211,16 @@ func checkTokenTimeout() {
 	}
 }
 
-func getWork(queue amqp.Queue) amqp.Delivery {
-	var msg amqp.Delivery
+func getWork() string {
 	// 从队列获取消息
 	msg, _, err := mqChannel.Get(
-		queue.Name, // queue name
-		true,       // auto-ack
+		Config["sourceQueue"].(string), // queue name
+		true,                           // auto-ack
 	)
 	if nil != err {
 		log.Fatalf("basic.consume source: %s", err)
 	}
-	return msg
+	return string(msg.Body)
 }
 
 // getSign 获取签名信息
@@ -273,29 +268,6 @@ func sendMessage(message string, queue string) {
 	}
 }
 
-// 检查用户是否存在于数据库中
-func checkUserExist(userID string) bool {
-	t1 := time.Now()
-	var have bool
-	// fmt.Println(userID)
-	rows, err := DB.Query("select 1 from user where uid =" + userID + " limit 1;")
-	if err != nil {
-		fmt.Println(err)
-	}
-	defer rows.Close()
-	// fmt.Println("-----------")
-	for rows.Next() {
-		//将每一行的结果都赋值到一个user对象中
-		err := rows.Scan(&have)
-		if err != nil {
-			fmt.Println("rows fail")
-		}
-		have = true
-	}
-	dbDelay = time.Now().Sub(t1)
-	return have
-}
-
 // 将解析好的用户数据发至指定队列
 func getRandomUser(followings []interface{}) {
 	// log.Println(followings)
@@ -303,82 +275,74 @@ func getRandomUser(followings []interface{}) {
 	if followingsNumber > 0 {
 		for follow := range followings {
 			author := followings[follow].(map[string]interface{})
-			// fmt.Println()
-			// log.Println(author["uid"].(string))
-			// log.Println(checkUserExist(author["uid"].(string)))
-			// 判断数据库中是否存在此用户
 			uid := author["uid"].(string)
-			if !checkUserExist(uid) {
-				// 增加
-				getNumber = getNumber + 1
-				// fmt.Println("检查")
-				// 如果不存在的话
-				sendMessage(uid, "uncheck-id")
-				sendMessage(uid, "douyin-unknow-id")
-				// 向数据库中插入数据
-				t1 := time.Now()
-				_, err := DB.Exec(`INSERT IGNORE INTO user  (uid) VALUES (` + uid + `)`)
-				if err != nil {
-					fmt.Printf("insert data error: %v\n", err)
-					return
-				}
-				insertDelay = time.Now().Sub(t1)
+
+			_, err := DB.Exec(`INSERT INTO user  (uid) VALUES (` + uid + `)`)
+			// 如果插入失败证明数据库中已经存在了
+			if err != nil {
+				// fmt.Printf("insert data error: %v\n", err)
+				return
 			}
+			// 如果不存在的话
+			sendMessage(uid, "uncheck-id")
+			sendMessage(uid, "douyin-unknow-id")
+			getNumber = getNumber + 1
+
 		}
 	}
 }
 
 // 获取用户关注列表
-func getUserFavoriteList(userID string) {
-	// 这个一看就知道是抖音官方接口啊
-	getURL := "https://aweme.snssdk.com/aweme/v1/user/following/list/?"
-	query, err := getQuery(userID)
-	// fmt.Println(getURL + query)
-	if err != nil {
-		log.Println("请求参数生成失败!")
-		log.Println(err)
-		errorHandling()
-		return
-	}
-	res, err := get(getURL + query)
-	// fmt.Println(res)
-	if err != nil {
-		log.Println("获取用户数据失败!")
-		log.Println(err)
-		errorHandling()
-		return
-	}
-	// 解析返回的有什么东东
-	var follow interface{}
-	// log.Println(string(res))
-	if err := json.Unmarshal(res, &follow); err == nil {
-		// 我猜他应该是这个格式数据
-		resData := follow.(map[string]interface{})
-		// 待优化
-		if resData["max_time"] == nil {
-			log.Println(follow)
+func concurrency() {
+	// 向数据库中插入数据
+	t1 := time.Now()
+	defer wg.Done()
+	userID := getWork()
+	if userID != "" {
+		// 这个一看就知道是抖音官方接口啊
+		query, err := getQuery(userID)
+		// fmt.Println(getURL + query)
+		if err != nil {
+			log.Println("请求参数生成失败!")
+			log.Println(err)
 			errorHandling()
 			return
 		}
-		// maxTime := resData["max_time"].(float64)
-		statusCode := resData["status_code"].(float64)
-		if int(statusCode) == 0 {
-			// 清洗数据
-			followings := resData["followings"].([]interface{})
-			getRandomUser(followings)
+		res, err := get("https://aweme.snssdk.com/aweme/v1/user/following/list/?" + query)
+		// fmt.Println(res)
+		if err != nil {
+			log.Println("获取用户数据失败!")
+			log.Println(err)
+			errorHandling()
+			return
 		}
-	} else {
-		log.Println(err.Error())
+		// 解析返回的有什么东东
+		var follow interface{}
+		// log.Println(string(res))
+		if err := json.Unmarshal(res, &follow); err == nil {
+			// 我猜他应该是这个格式数据
+			resData := follow.(map[string]interface{})
+			// 待优化
+			if resData["max_time"] == nil {
+				log.Println(follow)
+				errorHandling()
+				return
+			}
+			// maxTime := resData["max_time"].(float64)
+			statusCode := resData["status_code"].(float64)
+			if int(statusCode) == 0 {
+				// 清洗数据
+				followings := resData["followings"].([]interface{})
+				// 保存数据
+				// t1 := time.Now()
+				getRandomUser(followings)
+				// fmt.Println(time.Now().Sub(t1))
+			}
+		} else {
+			log.Println(err.Error())
+		}
 	}
-}
-
-// 并发执行任务
-func concurrency(queue amqp.Queue) {
-	msg := getWork(queue)
-	defer wg.Done()
-	if msg.Body != nil {
-		getUserFavoriteList(string(msg.Body))
-	}
+	insertDelay = time.Now().Sub(t1)
 }
 
 // 注册消息队列
@@ -392,17 +356,6 @@ func rabbit() {
 	mqChannel, err = mqConn.Channel()
 	if err != nil {
 		log.Fatal("Failed to open a channel:", err.Error())
-	}
-	_, err = mqChannel.QueueDeclare(
-		Config["sourceQueue"].(string),
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		log.Fatal("Failed to declare a queue:", err.Error())
 	}
 }
 
@@ -424,11 +377,7 @@ func main() {
 	initDB()
 	// 注册消息队列
 	rabbit()
-	// 声明消息队列
-	queue, err := mqChannel.QueueDeclare(Config["sourceQueue"].(string), true, false, false, false, nil)
-	if err != nil {
-		log.Fatalf("queue.declare source: %s", err)
-	}
+
 	writer := uilive.New()
 	writer.Start()
 	// 干不完不准休息
@@ -436,13 +385,12 @@ func main() {
 		// 检查代理IP和Token是否过期
 		checkTokenTimeout()
 		for key := 0; key < int(Config["threadNum"].(float64)); key++ {
-			time.Sleep(time.Millisecond * 10)
 			wg.Add(1)
 			// 并发执行任务
-			go concurrency(queue)
+			go concurrency()
 		}
+		fmt.Fprintf(writer, "\n获取数量: %d 条\n插入延迟: %s", getNumber, insertDelay)
 		wg.Wait()
-		fmt.Fprintf(writer, "\n获取数量: %d 条\n查询延迟: %s\n插入延迟: %s", getNumber, dbDelay, insertDelay)
 	}
 	writer.Stop()
 	println("all over!")
